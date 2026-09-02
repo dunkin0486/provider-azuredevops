@@ -23,6 +23,11 @@ I have:
 
 - [ ] Read and followed Crossplane's [contribution process].
 - [ ] Run `make reviewable` to ensure this PR is ready for review.
+- [ ] Run `make acceptance-tests` locally (spins up a kind cluster, builds
+      and loads the provider image, installs Crossplane + the provider, and
+      verifies it becomes healthy) and confirmed it passes. This is **not**
+      run in CI to conserve GitHub Actions minutes, so it must be verified
+      locally before merge.
 - [ ] Added `backport release-x.y` labels to auto-backport this PR if necessary.
 
 ### How has this code been tested

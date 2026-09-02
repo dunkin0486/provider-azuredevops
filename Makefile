@@ -55,11 +55,25 @@ fallthrough: submodules
 # integration tests
 e2e.run: test-integration
 
+# Defaults so `make test-integration`/`make acceptance-tests` work without
+# extra flags. Override on the command line if you need a different kind
+# node image or registry prefix, e.g. `make acceptance-tests KIND_NODE_IMAGE_TAG=v1.31.0`.
+KIND_NODE_IMAGE_TAG ?= v1.30.0
+DOCKER_REGISTRY ?= local
+
 # Run integration tests.
-test-integration: $(KIND) $(KUBECTL) $(CROSSPLANE_CLI) $(HELM3)
+test-integration: $(KIND) $(KUBECTL) $(CROSSPLANE_CLI)
 	@$(INFO) running integration tests using kind $(KIND_VERSION)
 	@KIND_NODE_IMAGE_TAG=${KIND_NODE_IMAGE_TAG} $(ROOT_DIR)/cluster/local/integration_tests.sh || $(FAIL)
 	@$(OK) integration tests passed
+
+# Acceptance tests: builds the provider image(s) and runs them through
+# test-integration against a local kind cluster. This is intentionally NOT
+# run in CI (kind + a full Crossplane install is expensive in GitHub Actions
+# minutes) -- it must be run locally before opening/merging a PR. See the PR
+# template checklist.
+acceptance-tests: build.all test-integration
+	@$(OK) acceptance tests passed
 
 # Update the submodules, such as the common build scripts.
 submodules:
@@ -104,7 +118,7 @@ dev-clean: $(KIND) $(KUBECTL)
 	@$(INFO) Deleting kind cluster
 	@$(KIND) delete cluster --name=$(PROJECT_NAME)-dev
 
-.PHONY: submodules fallthrough test-integration run dev dev-clean
+.PHONY: submodules fallthrough test-integration acceptance-tests run dev dev-clean
 
 # ====================================================================================
 # Special Targets
