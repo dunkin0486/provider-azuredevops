@@ -1,0 +1,14 @@
+apiVersion: project.azuredevops.crossplane.io/v1alpha1
+kind: Project
+metadata:
+  name: example-project
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-project
+    description: An example project managed by Crossplane.
+    visibility: private
+    versionControl: Git
+    workItemTemplate: Agile

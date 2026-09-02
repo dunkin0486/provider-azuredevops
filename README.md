@@ -12,6 +12,14 @@ REST API.
 See the [project roadmap] for the full list of planned resources and their
 priority.
 
+## Supported resources
+
+- **`Project`** (`project.azuredevops.crossplane.io/v1alpha1`) -- an Azure
+  DevOps project, the container for repos, pipelines, boards, and all other
+  resources. Nearly every other managed resource will reference a `Project`
+  via `projectId`/`projectRef`. See [`examples/project/project.yaml`] for a
+  complete example.
+
 ## Configuring
 
 The provider authenticates to Azure DevOps using a [Personal Access Token
@@ -52,5 +60,6 @@ guide may also be of use.
 [project roadmap]: https://github.com/users/dunkin0486/projects/7
 [ado-pat]: https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate
 [`examples/providerconfig/provider.yaml`]: examples/providerconfig/provider.yaml
+[`examples/project/project.yaml`]: examples/project/project.yaml
 [CONTRIBUTING.md]: https://github.com/crossplane/crossplane/blob/master/CONTRIBUTING.md
 [provider-dev]: https://github.com/crossplane/crossplane/blob/master/contributing/guide-provider-development.md
