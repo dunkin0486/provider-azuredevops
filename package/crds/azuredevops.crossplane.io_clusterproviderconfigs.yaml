@@ -22,6 +22,9 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
+    - jsonPath: .spec.organizationUrl
+      name: ORGANIZATION
+      type: string
     - jsonPath: .spec.credentials.secretRef.name
       name: SECRET-NAME
       priority: 1
@@ -106,8 +109,15 @@ spec:
                 required:
                 - source
                 type: object
+              organizationUrl:
+                description: |-
+                  OrganizationURL is the base URL of the Azure DevOps organization this
+                  ProviderConfig connects to, e.g. "https://dev.azure.com/myorg".
+                pattern: ^https://
+                type: string
             required:
             - credentials
+            - organizationUrl
             type: object
           status:
             description: A ProviderConfigStatus defines the status of a Provider.

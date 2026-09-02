@@ -12,6 +12,15 @@ REST API.
 See the [project roadmap] for the full list of planned resources and their
 priority.
 
+## Configuring
+
+The provider authenticates to Azure DevOps using a [Personal Access Token
+(PAT)][ado-pat] stored in a Kubernetes `Secret`, referenced by a
+`ProviderConfig` (namespaced) or `ClusterProviderConfig` (cluster-scoped).
+Each `ProviderConfig` targets a single Azure DevOps organization via its
+required `spec.organizationUrl` field, e.g. `https://dev.azure.com/myorg`.
+See [`examples/providerconfig/provider.yaml`] for a complete example.
+
 ## Developing
 
 1. Run `make submodules` to initialize the `build` Make submodule used for
@@ -41,5 +50,7 @@ guide may also be of use.
 [crossplane/provider-template]: https://github.com/crossplane/provider-template
 [microsoft/azure-devops-go-api]: https://github.com/microsoft/azure-devops-go-api
 [project roadmap]: https://github.com/users/dunkin0486/projects/7
+[ado-pat]: https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate
+[`examples/providerconfig/provider.yaml`]: examples/providerconfig/provider.yaml
 [CONTRIBUTING.md]: https://github.com/crossplane/crossplane/blob/master/CONTRIBUTING.md
 [provider-dev]: https://github.com/crossplane/crossplane/blob/master/contributing/guide-provider-development.md
