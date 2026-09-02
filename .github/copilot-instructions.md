@@ -122,6 +122,16 @@ required checkbox in `.github/PULL_REQUEST_TEMPLATE.md`. That target:
 Requires Docker running locally. `make e2e.run` / `make test-integration`
 remain available as lower-level aliases for the same script.
 
+## PR merging policy
+
+A human must always review and approve a pull request before it is merged.
+Copilot (or any agent acting on its behalf) must never merge a PR — via
+`gh pr merge`, the GitHub API/UI, auto-merge, or any other method — unless a
+human explicitly instructs it to merge that specific PR in that moment.
+Opening a PR, pushing commits, or a human saying a PR "looks good"/"is
+ready" does not imply permission to merge; wait for an explicit merge
+instruction.
+
 ## Style notes
 
 - Keep resources' `Parameters`/`Observation` structs and controller logic
