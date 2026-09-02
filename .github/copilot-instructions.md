@@ -45,6 +45,16 @@ See the GitHub Project ["Azure DevOps Crossplane Provider Roadmap"](https://gith
   `managed.ExternalClient` (Observe/Create/Update/Delete) against the Azure
   DevOps REST API.
 - `internal/controller/config/` — the `ProviderConfig` controller (auth/credentials).
+- `internal/clients/azuredevops/` — shared Azure DevOps client helpers built
+  on the official [`microsoft/azure-devops-go-api`](https://github.com/microsoft/azure-devops-go-api)
+  Go SDK (module `github.com/microsoft/azure-devops-go-api/azuredevops/v7`).
+  `NewConnection` wraps `azuredevops.NewPatConnection`; pass its result to
+  the SDK's per-area `NewClient` functions (e.g. `core.NewClient`,
+  `git.NewClient`, `build.NewClient`) to get a typed client for a given API
+  area. **Use this SDK for all new resource controllers — do not hand-roll
+  raw REST calls.** This package is also where shared error translation,
+  pagination, and retry/backoff helpers should live as they're added (see
+  issue #33).
 - `package/crds/` — generated CRD YAML bundled into the provider xpkg.
 - `examples/` — sample YAML manifests per resource, used for manual testing
   and documentation.
