@@ -6,7 +6,9 @@ package project
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
@@ -14,6 +16,10 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/operations"
+
+	"k8s.io/apimachinery/pkg/util/wait"
+
+	xpv2 "github.com/crossplane/crossplane/apis/v2/core/v2"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/meta"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/reconciler/managed"
@@ -51,6 +57,7 @@ func TestObserve(t *testing.T) {
 	id := uuid.New()
 	wellFormed := core.ProjectStateValues.WellFormed
 	createPending := core.ProjectStateValues.CreatePending
+	deleting := core.ProjectStateValues.Deleting
 	visibility := core.ProjectVisibilityValues.Private
 
 	type fields struct {
@@ -61,8 +68,10 @@ func TestObserve(t *testing.T) {
 		cr  *v1alpha1.Project
 	}
 	type want struct {
-		o   managed.ExternalObservation
-		err error
+		o         managed.ExternalObservation
+		err       error
+		condition xpv2.ConditionType
+		reason    xpv2.ConditionReason
 	}
 
 	cases := map[string]struct {
@@ -133,7 +142,21 @@ func TestObserve(t *testing.T) {
 				},
 			}},
 			args: args{cr: projectWith("my-project", nil)},
-			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}},
+			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.TypeReady, reason: xpv2.ReasonCreating},
+		},
+		"StillDeleting": {
+			reason: "Observe should report the Deleting condition, not Creating, while Azure DevOps is tearing the project down.",
+			fields: fields{project: &fake.ProjectClient{
+				GetProjectFn: func(_ context.Context, _ core.GetProjectArgs) (*core.TeamProject, error) {
+					return &core.TeamProject{
+						Id:    &id,
+						Name:  strPtr("my-project"),
+						State: &deleting,
+					}, nil
+				},
+			}},
+			args: args{cr: projectWith("my-project", nil)},
+			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.TypeReady, reason: xpv2.ReasonDeleting},
 		},
 	}
 
@@ -146,6 +169,12 @@ func TestObserve(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want.o, got); diff != "" {
 				t.Errorf("\n%s\ne.Observe(...): -want, +got:\n%s\n", tc.reason, diff)
+			}
+			if tc.want.condition != "" {
+				got := tc.args.cr.Status.GetCondition(tc.want.condition)
+				if got.Reason != tc.want.reason {
+					t.Errorf("\n%s\ne.Observe(...): condition %s reason = %q, want %q\n", tc.reason, tc.want.condition, got.Reason, tc.want.reason)
+				}
 			}
 		})
 	}
@@ -197,6 +226,118 @@ func TestDelete(t *testing.T) {
 	if _, err := e.Delete(context.Background(), cr); err != nil {
 		t.Fatalf("e.Delete(...): unexpected error: %v", err)
 	}
+}
+
+func TestUpdate(t *testing.T) {
+	id := uuid.New()
+	opID := uuid.New()
+	succeeded := operations.OperationStatusValues.Succeeded
+
+	t.Run("NoObservedID", func(t *testing.T) {
+		e := external{project: &fake.ProjectClient{
+			UpdateProjectFn: func(_ context.Context, _ core.UpdateProjectArgs) (*operations.OperationReference, error) {
+				t.Fatal("UpdateProject should not be called when no project id has been observed")
+				return nil, nil
+			},
+		}}
+
+		cr := projectWith("my-project", nil)
+
+		if _, err := e.Update(context.Background(), cr); err == nil {
+			t.Fatal("e.Update(...): expected error when no project id has been observed, got nil")
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		var gotArgs core.UpdateProjectArgs
+		e := external{
+			project: &fake.ProjectClient{
+				UpdateProjectFn: func(_ context.Context, args core.UpdateProjectArgs) (*operations.OperationReference, error) {
+					gotArgs = args
+					return &operations.OperationReference{Id: &opID}, nil
+				},
+			},
+			operations: &fake.OperationsClient{
+				GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+					return &operations.Operation{Status: &succeeded}, nil
+				},
+			},
+		}
+
+		cr := projectWith("my-project", func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Visibility = "public"
+			cr.Status.AtProvider.ID = id.String()
+		})
+
+		if _, err := e.Update(context.Background(), cr); err != nil {
+			t.Fatalf("e.Update(...): unexpected error: %v", err)
+		}
+
+		if gotArgs.ProjectId == nil || *gotArgs.ProjectId != id {
+			t.Errorf("e.Update(...): UpdateProject called with project id = %v, want %v", gotArgs.ProjectId, id)
+		}
+		if gotArgs.ProjectUpdate == nil || gotArgs.ProjectUpdate.Visibility == nil || string(*gotArgs.ProjectUpdate.Visibility) != "public" {
+			t.Errorf("e.Update(...): UpdateProject called with unexpected visibility: %+v", gotArgs.ProjectUpdate)
+		}
+	})
+}
+
+// withOperationPollBackoff temporarily overrides operationPollBackoff for
+// the duration of a test, restoring it afterward. Tests that exercise
+// waitForOperation's failure/timeout paths use a much smaller backoff so
+// they don't have to wait out the real (multi-second) production schedule.
+func withOperationPollBackoff(t *testing.T, b wait.Backoff) {
+	t.Helper()
+	orig := operationPollBackoff
+	operationPollBackoff = b
+	t.Cleanup(func() { operationPollBackoff = orig })
+}
+
+func TestWaitForOperation(t *testing.T) {
+	opID := uuid.New()
+	failed := operations.OperationStatusValues.Failed
+	inProgress := operations.OperationStatusValues.InProgress
+
+	t.Run("NilOperation", func(t *testing.T) {
+		e := external{}
+		if err := e.waitForOperation(context.Background(), nil); err != nil {
+			t.Fatalf("e.waitForOperation(nil): unexpected error: %v", err)
+		}
+	})
+
+	t.Run("Failure", func(t *testing.T) {
+		withOperationPollBackoff(t, wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3})
+
+		msg := "something went wrong"
+		e := external{operations: &fake.OperationsClient{
+			GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+				return &operations.Operation{Status: &failed, DetailedMessage: &msg}, nil
+			},
+		}}
+
+		err := e.waitForOperation(context.Background(), &operations.OperationReference{Id: &opID})
+		if err == nil {
+			t.Fatal("e.waitForOperation(...): expected error for a failed operation, got nil")
+		}
+		if !strings.Contains(err.Error(), msg) {
+			t.Errorf("e.waitForOperation(...): error = %q, want it to contain %q", err.Error(), msg)
+		}
+	})
+
+	t.Run("Timeout", func(t *testing.T) {
+		withOperationPollBackoff(t, wait.Backoff{Duration: time.Millisecond, Factor: 1, Steps: 3})
+
+		e := external{operations: &fake.OperationsClient{
+			GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+				return &operations.Operation{Status: &inProgress}, nil
+			},
+		}}
+
+		err := e.waitForOperation(context.Background(), &operations.OperationReference{Id: &opID})
+		if err == nil {
+			t.Fatal("e.waitForOperation(...): expected error when the operation never reaches a terminal state, got nil")
+		}
+	})
 }
 
 func strPtr(s string) *string { return &s }

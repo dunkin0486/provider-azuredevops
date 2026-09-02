@@ -157,7 +157,11 @@ func (c *external) Observe(ctx context.Context, cr *v1alpha1.Project) (managed.E
 		// Report it as existing (so we don't attempt to re-create it) but
 		// not yet up to date, and let the next reconcile re-Observe its
 		// progress.
-		cr.SetConditions(xpv2.Creating())
+		if *tp.State == core.ProjectStateValues.Deleting || *tp.State == core.ProjectStateValues.Deleted {
+			cr.SetConditions(xpv2.Deleting())
+		} else {
+			cr.SetConditions(xpv2.Creating())
+		}
 		return managed.ExternalObservation{
 			ResourceExists:   true,
 			ResourceUpToDate: true,
