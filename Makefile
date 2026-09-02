@@ -55,8 +55,14 @@ fallthrough: submodules
 # integration tests
 e2e.run: test-integration
 
+# Defaults so `make test-integration`/`make acceptance-tests` work without
+# extra flags. Override on the command line if you need a different kind
+# node image or registry prefix, e.g. `make acceptance-tests KIND_NODE_IMAGE_TAG=v1.31.0`.
+KIND_NODE_IMAGE_TAG ?= v1.30.0
+DOCKER_REGISTRY ?= local
+
 # Run integration tests.
-test-integration: $(KIND) $(KUBECTL) $(CROSSPLANE_CLI) $(HELM3)
+test-integration: $(KIND) $(KUBECTL) $(CROSSPLANE_CLI)
 	@$(INFO) running integration tests using kind $(KIND_VERSION)
 	@KIND_NODE_IMAGE_TAG=${KIND_NODE_IMAGE_TAG} $(ROOT_DIR)/cluster/local/integration_tests.sh || $(FAIL)
 	@$(OK) integration tests passed

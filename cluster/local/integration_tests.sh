@@ -46,13 +46,12 @@ eval $(make --no-print-directory -C ${projectdir} build.vars)
 # ------------------------------
 
 SAFEHOSTARCH="${SAFEHOSTARCH:-amd64}"
+# BUILD_IMAGE is also the runtime image embedded in the xpkg by
+# `xpkg.mk`'s `--embed-runtime-image` (see `make build.all`), so it's the
+# only image we need to load into kind -- there is no separate "-controller"
+# image with modern (embedded-runtime) provider packages.
 BUILD_IMAGE="${BUILD_REGISTRY}/${PROJECT_NAME}-${SAFEHOSTARCH}"
-PACKAGE_IMAGE="crossplane.io/inttests/${PROJECT_NAME}:${VERSION}"
-CONTROLLER_IMAGE="${BUILD_REGISTRY}/${PROJECT_NAME}-controller-${SAFEHOSTARCH}"
 
-version_tag="$(cat ${projectdir}/_output/version)"
-# tag as latest version to load into kind cluster
-PACKAGE_CONTROLLER_IMAGE="${DOCKER_REGISTRY}/${PROJECT_NAME}-controller:${VERSION}"
 K8S_CLUSTER="${K8S_CLUSTER:-${BUILD_REGISTRY}-inttests}"
 
 CROSSPLANE_NAMESPACE="crossplane-system"
@@ -73,8 +72,61 @@ echo_step "setting up local package cache"
 CACHE_PATH="${projectdir}/.work/inttest-package-cache"
 mkdir -p "${CACHE_PATH}"
 echo "created cache dir at ${CACHE_PATH}"
-docker tag "${BUILD_IMAGE}" "${PACKAGE_IMAGE}"
-"${UP}" xpkg xp-extract --from-daemon "${PACKAGE_IMAGE}" -o "${CACHE_PATH}/${PACKAGE_NAME}.gz" && chmod 644 "${CACHE_PATH}/${PACKAGE_NAME}.gz"
+
+# Extract straight from the .xpkg file that `make build.all` already wrote
+# to disk, rather than from the docker daemon. Extracting from the daemon
+# via crank/go-containerregistry is unreliable on Docker Desktop when the
+# containerd image store is enabled (produces a "failed to open package
+# stream file: EOF" error), so --from-xpkg is used instead -- it reads the
+# OCI layout directly and works regardless of the daemon's image store.
+XPKG_DIR="${projectdir}/_output/xpkg/linux_${SAFEHOSTARCH}"
+XPKG_FILE="$(ls -t "${XPKG_DIR}"/"${PROJECT_NAME}"-*.xpkg 2>/dev/null | head -1)"
+[ -n "${XPKG_FILE}" ] || echo_error "no .xpkg file found in ${XPKG_DIR}; run 'make build.all' first"
+echo_info "using package ${XPKG_FILE}"
+
+# Modern Crossplane (crossplane-runtime v2's CachedClient) always resolves a
+# tag-based package reference to a digest via a registry HEAD request before
+# it will even consult its local package cache -- packagePullPolicy: Never
+# only skips the *pull*, not this digest lookup. It skips the lookup (and any
+# network access) only when given an actual digest reference
+# (repo@sha256:...) up front. We exploit that for fully offline testing: mint
+# an arbitrary sha256 "digest" from the .xpkg file's own contents, reference
+# the package by that digest, and store the extracted package contents under
+# the exact cache filename Crossplane derives for that (source, digest) pair
+# -- FriendlyID()/ToDNSLabel() from crossplane-runtime's pkg/xpkg/name.go,
+# reimplemented here in Python since it's not exposed as a CLI/API.
+PACKAGE_SOURCE="local.xpkg/${PROJECT_NAME}"
+PACKAGE_DIGEST="sha256:$( (sha256sum "${XPKG_FILE}" 2>/dev/null || shasum -a 256 "${XPKG_FILE}") | awk '{print $1}')"
+PACKAGE_REF="${PACKAGE_SOURCE}@${PACKAGE_DIGEST}"
+CACHE_KEY="$(python3 - "${PACKAGE_SOURCE}" "${PACKAGE_DIGEST}" <<'PYEOF'
+import sys
+
+
+def truncate(s, n):
+    return s[:n]
+
+
+def to_dns_label(s):
+    out = []
+    n = len(s)
+    for i, b in enumerate(s):
+        if ("a" <= b <= "z") or ("0" <= b <= "9"):
+            out.append(b)
+        if b in ".:/-" and i != 0 and i != 62 and i != n - 1:
+            out.append("-")
+        if i == 62:
+            break
+    return "".join(out).strip("-")
+
+
+name, digest = sys.argv[1], sys.argv[2]
+print(to_dns_label("-".join([truncate(name, 50), truncate(digest, 12)])))
+PYEOF
+)"
+echo_info "package ref=${PACKAGE_REF} cache-key=${CACHE_KEY}"
+"${CROSSPLANE_CLI}" xpkg extract --from-xpkg "${XPKG_FILE}" -o "${CACHE_PATH}/${CACHE_KEY}.gz"
+chmod 644 "${CACHE_PATH}/${CACHE_KEY}.gz"
+
 
 # create kind cluster with extra mounts
 KIND_NODE_IMAGE="kindest/node:${KIND_NODE_IMAGE_TAG}"
@@ -91,9 +143,10 @@ EOF
 )"
 echo "${KIND_CONFIG}" | "${KIND}" create cluster --name="${K8S_CLUSTER}" --wait=5m --image="${KIND_NODE_IMAGE}" --config=-
 
-# tag controller image and load it into kind cluster
-docker tag "${CONTROLLER_IMAGE}" "${PACKAGE_CONTROLLER_IMAGE}"
-"${KIND}" load docker-image "${PACKAGE_CONTROLLER_IMAGE}" --name="${K8S_CLUSTER}"
+# load the (already built) provider image directly into kind -- it's the
+# same image embedded as the runtime image inside the xpkg above, so no
+# separate tagging/renaming is needed.
+"${KIND}" load docker-image "${BUILD_IMAGE}" --name="${K8S_CLUSTER}"
 
 echo_step "create crossplane-system namespace"
 "${KUBECTL}" create ns crossplane-system
@@ -137,14 +190,18 @@ EOF
 echo "${PVC_YAML}" | "${KUBECTL}" create -f -
 
 # install crossplane from stable channel
+# NOTE: the build submodule no longer vendors a Helm binary (no $(HELM3)
+# variable), so this relies on `helm` being available on your PATH.
 echo_step "installing crossplane from stable channel"
-"${HELM3}" repo add crossplane-stable https://charts.crossplane.io/stable/
-chart_version="$("${HELM3}" search repo crossplane-stable/crossplane | awk 'FNR == 2 {print $2}')"
+command -v helm >/dev/null 2>&1 || echo_error "helm is required on PATH to run acceptance tests locally"
+helm repo add crossplane-stable https://charts.crossplane.io/stable/ --force-update
+helm repo update crossplane-stable
+chart_version="$(helm search repo crossplane-stable/crossplane | awk 'FNR == 2 {print $2}')"
 echo_info "using crossplane version ${chart_version}"
 echo
 # we replace empty dir with our PVC so that the /cache dir in the kind node
 # container is exposed to the crossplane pod
-"${HELM3}" install crossplane --namespace crossplane-system crossplane-stable/crossplane --version ${chart_version} --wait --set packageCache.pvc=package-cache
+helm install crossplane --namespace crossplane-system crossplane-stable/crossplane --version ${chart_version} --wait --set packageCache.pvc=package-cache
 
 # ----------- integration tests
 echo_step "--- INTEGRATION TESTS ---"
@@ -152,17 +209,44 @@ echo_step "--- INTEGRATION TESTS ---"
 # install package
 echo_step "installing ${PROJECT_NAME} into \"${CROSSPLANE_NAMESPACE}\" namespace"
 
+# The extracted package we cached above has no OCI manifest for Crossplane to
+# read an embedded-runtime-image annotation from, so the package manager
+# defaults to using the package's own (fake, digest-pinned) reference as the
+# controller/runtime image too -- which was never loaded into kind and can't
+# be pulled offline. A DeploymentRuntimeConfig lets us override just the
+# runtime container image to the real, already kind-loaded ${BUILD_IMAGE}.
+RUNTIME_CONFIG_YAML="$( cat <<EOF
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: "${PACKAGE_NAME}-runtime"
+spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              image: "${BUILD_IMAGE}:latest"
+              imagePullPolicy: Never
+EOF
+)"
+
 INSTALL_YAML="$( cat <<EOF
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: "${PACKAGE_NAME}"
 spec:
-  package: "${PACKAGE_NAME}"
+  package: "${PACKAGE_REF}"
   packagePullPolicy: Never
+  runtimeConfigRef:
+    name: "${PACKAGE_NAME}-runtime"
 EOF
 )"
 
+echo "${RUNTIME_CONFIG_YAML}" | "${KUBECTL}" apply -f -
 echo "${INSTALL_YAML}" | "${KUBECTL}" apply -f -
 
 # printing the cache dir contents can be useful for troubleshooting failures
@@ -176,15 +260,16 @@ kubectl wait "provider.pkg.crossplane.io/${PACKAGE_NAME}" --for=condition=health
 echo_step "uninstalling ${PROJECT_NAME}"
 
 echo "${INSTALL_YAML}" | "${KUBECTL}" delete -f -
+echo "${RUNTIME_CONFIG_YAML}" | "${KUBECTL}" delete -f -
 
 # check pods deleted
 timeout=60
 current=0
 step=3
-while [[ $(kubectl get providerrevision.pkg.crossplane.io -o name | wc -l) != "0" ]]; do
+while [[ "$(kubectl get providerrevision.pkg.crossplane.io -o name | wc -l | tr -d '[:space:]')" != "0" ]]; do
   echo "waiting for provider to be deleted for another $step seconds"
-  current=$current+$step
-  if ! [[ $timeout > $current ]]; then
+  current=$((current + step))
+  if ! [[ $timeout -gt $current ]]; then
     echo_error "timeout of ${timeout}s has been reached"
   fi
   sleep $step;
