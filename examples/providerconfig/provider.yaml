@@ -9,8 +9,11 @@ metadata:
   namespace: default
   name: example-provider-secret
 type: Opaque
-data:
-  credentials: QkFTRTY0RU5DT0RFRF9QUk9WSURFUl9DUkVEUwo=
+stringData:
+  # A Personal Access Token (PAT) generated for the Azure DevOps
+  # organization referenced below. Grant it only the scopes required by
+  # the resources you intend to manage.
+  credentials: REPLACE_ME_WITH_YOUR_PAT
 ---
 apiVersion: azuredevops.crossplane.io/v1alpha1
 kind: ProviderConfig
@@ -18,6 +21,7 @@ metadata:
   name: example
   namespace: default
 spec:
+  organizationUrl: https://dev.azure.com/example-org
   credentials:
     source: Secret
     secretRef:
@@ -30,6 +34,7 @@ kind: ClusterProviderConfig
 metadata:
   name: example
 spec:
+  organizationUrl: https://dev.azure.com/example-org
   credentials:
     source: Secret
     secretRef:

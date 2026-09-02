@@ -29,6 +29,12 @@ type ProviderCredentials struct {
 }
 
 type ProviderConfigSpec struct {
+	// OrganizationURL is the base URL of the Azure DevOps organization this
+	// ProviderConfig connects to, e.g. "https://dev.azure.com/myorg".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^https://`
+	OrganizationURL string `json:"organizationUrl"`
+
 	// Credentials required to authenticate to this provider.
 	Credentials ProviderCredentials `json:"credentials"`
 }
@@ -38,6 +44,7 @@ type ProviderConfigSpec struct {
 
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="ORGANIZATION",type="string",JSONPath=".spec.organizationUrl"
 // +kubebuilder:printcolumn:name="SECRET-NAME",type="string",JSONPath=".spec.credentials.secretRef.name",priority=1
 // +kubebuilder:resource:scope=Namespaced,categories={crossplane,provider,azuredevops}
 // A ProviderConfig configures an AzureDevOps 'provider', i.e. a connection to a particular
@@ -89,6 +96,7 @@ type ProviderConfigUsageList struct {
 
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="AGE",type="date",JSONPath=".metadata.creationTimestamp"
+// +kubebuilder:printcolumn:name="ORGANIZATION",type="string",JSONPath=".spec.organizationUrl"
 // +kubebuilder:printcolumn:name="SECRET-NAME",type="string",JSONPath=".spec.credentials.secretRef.name",priority=1
 // +kubebuilder:resource:scope=Cluster,categories={crossplane,provider,azuredevops}
 // A ClusterProviderConfig configures an AzureDevOps provider.
