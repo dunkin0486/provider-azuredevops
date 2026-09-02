@@ -61,6 +61,14 @@ test-integration: $(KIND) $(KUBECTL) $(CROSSPLANE_CLI) $(HELM3)
 	@KIND_NODE_IMAGE_TAG=${KIND_NODE_IMAGE_TAG} $(ROOT_DIR)/cluster/local/integration_tests.sh || $(FAIL)
 	@$(OK) integration tests passed
 
+# Acceptance tests: builds the provider image(s) and runs them through
+# test-integration against a local kind cluster. This is intentionally NOT
+# run in CI (kind + a full Crossplane install is expensive in GitHub Actions
+# minutes) -- it must be run locally before opening/merging a PR. See the PR
+# template checklist.
+acceptance-tests: build.all test-integration
+	@$(OK) acceptance tests passed
+
 # Update the submodules, such as the common build scripts.
 submodules:
 	@git submodule sync
@@ -104,7 +112,7 @@ dev-clean: $(KIND) $(KUBECTL)
 	@$(INFO) Deleting kind cluster
 	@$(KIND) delete cluster --name=$(PROJECT_NAME)-dev
 
-.PHONY: submodules fallthrough test-integration run dev dev-clean
+.PHONY: submodules fallthrough test-integration acceptance-tests run dev dev-clean
 
 # ====================================================================================
 # Special Targets

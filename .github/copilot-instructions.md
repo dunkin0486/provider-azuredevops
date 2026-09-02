@@ -73,6 +73,10 @@ resources to implement first: `Project`, `GitRepository`,
   kind cluster**, builds/loads the provider image, installs Crossplane +
   the provider package, and asserts the provider reaches `healthy` before
   tearing the cluster down. This requires Docker running locally.
+- `make acceptance-tests` — the required-before-merge target: runs
+  `make build.all` then `make test-integration` (i.e. builds the images
+  first, then does the same kind-cluster install/health-check as above).
+  Not run in CI; see "CI / PR requirements" below.
 - `make dev` / `make dev-clean` — create/delete a long-lived local kind
   cluster for iterative manual testing (`kubectl apply` example manifests
   against a controller run via `make run`).
@@ -80,12 +84,21 @@ resources to implement first: `Project`, `GitRepository`,
 ## CI / PR requirements
 
 `.github/workflows/ci.yml` runs on every PR: `lint`, `check-diff`
-(generated-file drift), `unit-tests`, and **`acceptance-tests`** — the last
-of which builds the provider image and runs `make e2e.run` against a fresh
-kind cluster in the runner, i.e. the same acceptance test described above.
-All four checks (plus `publish-artifacts` on pushes) must pass; treat a
-red `acceptance-tests` job as equivalent to a failing local
-`make e2e.run` run and debug it the same way before requesting review.
+(generated-file drift), and `unit-tests` (plus `publish-artifacts` on
+pushes). All must pass.
+
+Acceptance tests are **intentionally not run in CI** (a kind cluster + full
+Crossplane install is expensive in GitHub Actions minutes). Instead, every
+PR must have `make acceptance-tests` run **locally** before merge — it's a
+required checkbox in `.github/PULL_REQUEST_TEMPLATE.md`. That target:
+1. Builds the provider (and controller) images (`make build.all`).
+2. Spins up a local kind cluster and installs Crossplane.
+3. Loads the built image and installs the provider package.
+4. Waits for the provider to report `healthy`, then uninstalls it and
+   tears the cluster down (`cluster/local/integration_tests.sh`).
+
+Requires Docker running locally. `make e2e.run` / `make test-integration`
+remain available as lower-level aliases for the same script.
 
 ## Style notes
 
