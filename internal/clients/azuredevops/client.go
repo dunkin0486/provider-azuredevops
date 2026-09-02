@@ -5,9 +5,12 @@
 // Package azuredevops provides shared helpers for constructing Azure DevOps
 // API clients from the official Microsoft Go SDK
 // (github.com/microsoft/azure-devops-go-api). Resource controllers should use
-// NewConnection (or a future ProviderConfig-aware wrapper around it) rather
-// than constructing SDK connections directly, so that authentication,
-// error-handling, and retry behavior stay consistent across resources.
+// GetConfig (which resolves a managed resource's ProviderConfig and returns a
+// Config wrapping NewConnection) rather than constructing SDK connections
+// directly, so that authentication, error-handling, and retry behavior stay
+// consistent across resources. See errors.go, pagination.go, and retry.go
+// for the accompanying shared error-translation, pagination, and retry
+// helpers.
 package azuredevops
 
 import (

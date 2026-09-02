@@ -48,13 +48,30 @@ See the GitHub Project ["Azure DevOps Crossplane Provider Roadmap"](https://gith
 - `internal/clients/azuredevops/` — shared Azure DevOps client helpers built
   on the official [`microsoft/azure-devops-go-api`](https://github.com/microsoft/azure-devops-go-api)
   Go SDK (module `github.com/microsoft/azure-devops-go-api/azuredevops/v7`).
-  `NewConnection` wraps `azuredevops.NewPatConnection`; pass its result to
-  the SDK's per-area `NewClient` functions (e.g. `core.NewClient`,
-  `git.NewClient`, `build.NewClient`) to get a typed client for a given API
-  area. **Use this SDK for all new resource controllers — do not hand-roll
-  raw REST calls.** This package is also where shared error translation,
-  pagination, and retry/backoff helpers should live as they're added (see
-  issue #33).
+  **Every new resource controller's `Connect` should call `GetConfig` rather
+  than resolving `ProviderConfig`/credentials itself.** Key helpers:
+  - `GetConfig(ctx, kube, mg)` resolves the `ProviderConfig` or
+    `ClusterProviderConfig` referenced by a managed resource
+    (`resource.ModernManaged`), tracks its usage via
+    `resource.NewProviderConfigUsageTracker`, and extracts its PAT via
+    `resource.CommonCredentialExtractor`, returning a `*Config`.
+  - `(*Config).Connection()` wraps `azuredevops.NewPatConnection` (also
+    exposed directly as `NewConnection`); pass the result to the SDK's
+    per-area `NewClient` functions (e.g. `core.NewClient`, `git.NewClient`,
+    `build.NewClient`) to get a typed client for a given API area. **Use
+    this SDK for all new resource controllers — do not hand-roll raw REST
+    calls.**
+  - `errors.go` translates SDK errors: `IsNotFound` (404, use with
+    `resource.Ignore` in `Observe`/`Delete`), `IsThrottled` (429),
+    `IsUnauthorized` (401/403), and `IsRetryable` (429/5xx/network errors).
+  - `ListAll`/`PageFunc` (`pagination.go`) drain `ContinuationToken`-based
+    list APIs into a single slice.
+  - `Retry`/`DefaultBackoff` (`retry.go`) wrap a single API call with
+    exponential backoff, retrying only while `IsRetryable` is true.
+  - Per-resource client interfaces + fakes for unit-testing controllers
+    (mirroring `provider-gitlab`'s `pkg/*/clients/<resource>/fake`
+    convention) should live alongside each controller package as they're
+    added, since they depend on a specific SDK client's method set.
 - `package/crds/` — generated CRD YAML bundled into the provider xpkg.
 - `examples/` — sample YAML manifests per resource, used for manual testing
   and documentation.
