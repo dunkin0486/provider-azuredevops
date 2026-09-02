@@ -1,13 +1,13 @@
 apiVersion: meta.pkg.crossplane.io/v1alpha1
 kind: Provider
 metadata:
-  name: provider-template
+  name: provider-azuredevops
   annotations:
-    meta.crossplane.io/maintainer: Crossplane Maintainers <info@crossplane.io>
-    meta.crossplane.io/source: github.com/crossplane/provider-template
+    meta.crossplane.io/maintainer: dunkin0486 <https://github.com/dunkin0486>
+    meta.crossplane.io/source: github.com/dunkin0486/provider-azuredevops
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/description: |
-      A template that can be used to create Crossplane providers.
+      A Crossplane provider for managing Azure DevOps resources.
 spec:
   capabilities:
     - safe-start

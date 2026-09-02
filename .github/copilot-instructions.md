@@ -2,28 +2,40 @@
 
 ## What this repo is
 
-A native [Crossplane](https://crossplane.io) provider for Azure DevOps. It is
-built from the [`crossplane/provider-template`](https://github.com/crossplane/provider-template)
-scaffold and follows standard Crossplane provider conventions (managed
-resources + controllers reconciled by `controller-runtime`, no Terraform/Upjet
-involved).
+A native [Crossplane](https://crossplane.io) provider for Azure DevOps. It was
+bootstrapped from the [`crossplane/provider-template`](https://github.com/crossplane/provider-template)
+scaffold (now de-templated — see below) and follows standard Crossplane
+provider conventions (managed resources + controllers reconciled by
+`controller-runtime`, no Terraform/Upjet involved).
 
-**Current state:** the repo has *not yet* been run through
-`make provider.prepare provider=AzureDevOps`. You will still see template
-placeholders (`PROJECT_NAME := provider-template`, API group
-`template.crossplane.io`, sample type `mytype`) in `Makefile`, `apis/`,
-`internal/controller/`, and `package/`. Treat these as scaffolding to be
-replaced as real resources are added, not as intentional product decisions.
+**Current state:** the repo has been de-templated
+(`make provider.prepare provider=AzureDevOps` has been run): `PROJECT_NAME :=
+provider-azuredevops` in `Makefile`, API group `azuredevops.crossplane.io` in
+`apis/`, and the sample `MyType`/`mytype` API and controller have been
+removed. The only resources that exist so far are the `ProviderConfig` /
+`ProviderConfigUsage` scaffolding in `apis/v1alpha1` — no real Azure DevOps
+managed resources have been implemented yet. See the roadmap below and the
+"Foundation" issues (#30–#34) for the required groundwork (SDK adoption,
+`ProviderConfig` design, shared client package, testing conventions) that
+must land before/alongside the first real resource controller.
 
 ## Roadmap / planned resources
 
 See the GitHub Project ["Azure DevOps Crossplane Provider Roadmap"](https://github.com/users/dunkin0486/projects/7)
-(Roadmap view) and issues #1–#10 for the prioritized list of managed
-resources to implement first: `Project`, `GitRepository`,
-`ServiceEndpointAzureRM`, `VariableGroup`, `BuildDefinition`,
-`BranchPolicyMinReviewers`, `Team`, `GroupMembership`,
-`ServiceEndpointGitHub`, `Environment` — roughly in that dependency order
-(`Project` is the root nearly everything else references).
+(Roadmap view) for the full prioritized backlog. Highlights:
+- **Foundation (P0, #30–#34):** de-template scaffold (done), adopt the
+  official [`microsoft/azure-devops-go-api`](https://github.com/microsoft/azure-devops-go-api)
+  Go SDK, design `ProviderConfig` (PAT-via-Secret auth), build a shared
+  `internal/clients/azuredevops` client package, establish testing
+  conventions.
+- **Resources (#1–#10, highest priority):** `Project`, `GitRepository`,
+  `ServiceEndpointAzureRM`, `VariableGroup`, `BuildDefinition`,
+  `BranchPolicyMinReviewers`, `Team`, `GroupMembership`,
+  `ServiceEndpointGitHub`, `Environment` — roughly in that dependency order
+  (`Project` is the root nearly everything else references).
+- **Resources (#12–#29, lower priority):** the remaining ADO resources
+  (additional service endpoints, agent pools/queues, branch policies,
+  release definitions, checks, wiki, feeds, etc.) — see individual issues.
 
 ## Repo layout
 
@@ -38,7 +50,7 @@ resources to implement first: `Project`, `GitRepository`,
   and documentation.
 - `cluster/local/integration_tests.sh` — kind-based install/uninstall smoke
   test invoked by `make e2e.run` / `make test-integration`.
-- `hack/helpers/` — codegen templates/scripts for `make provider.prepare`
+- `hack/helpers/` — codegen helper scripts for `make provider.prepare`
   and `make provider.addtype`.
 - `build/` — git submodule (`crossplane/build`), the shared Makefile
   machinery. Don't edit; run `make submodules` to refresh it.
