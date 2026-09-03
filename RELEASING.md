@@ -22,10 +22,8 @@ Both cases log in to `ghcr.io` using the workflow's own `GITHUB_TOKEN` (via
 the `packages: write` permission on the job) -- no external account or
 secret setup is required for GHCR.
 
-The same job also pushes to `xpkg.upbound.io/cd0486` using the
-`UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/`_PSW` repo secrets (a robot account
-access ID/token from your Upbound account), which are configured -- so every
-`main` and `v*` tag build publishes to both GHCR and Upbound's registry.
+Upbound registry (`xpkg.upbound.io`) publishing is **not enabled yet** --
+see "Upbound Marketplace" below and [#43].
 
 ## Cutting a release
 
@@ -51,8 +49,7 @@ since a PR authored by `github-actions[bot]` can't approve itself, and
 and create a GitHub Release, then the workflow explicitly dispatches
 `ci.yml` on that tag (a tag pushed by the default `GITHUB_TOKEN` doesn't
 trigger other workflows on its own -- GitHub blocks that to avoid infinite
-loops), which builds and publishes the versioned package to GHCR and
-Upbound's registry.
+loops), which builds and publishes the versioned package to GHCR.
 
 **End result: merging a PR with a conventional-commit message (e.g.
 `feat: add GitRepository resource`) fully releases a new version with no
@@ -115,38 +112,19 @@ helm install crossplane crossplane-stable/crossplane \
 
 ## Upbound Marketplace
 
-Now that the package is also pushed to `xpkg.upbound.io/cd0486` (see above),
-installing from Upbound's registry directly works the same way as GHCR:
+Publishing to `xpkg.upbound.io` (and eventual Marketplace listing) is
+**not set up yet** -- `ci.yml` has a conditional Upbound login/publish step
+gated on `UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/`_PSW` secrets, but no
+credentials are currently configured. A first attempt found that
+`docker login xpkg.upbound.io` requires a Robot account token (assigned to
+a Team with repository push permissions) rather than a personal
+account/PAT -- see [docs.upbound.io/manuals/platform/robots](https://docs.upbound.io/manuals/platform/robots/).
+Setting that up correctly, and separately confirming how Marketplace
+*listing* (discoverability) actually works, is tracked in [#43].
 
-```yaml
-apiVersion: pkg.crossplane.io/v1
-kind: Provider
-metadata:
-  name: provider-azuredevops
-spec:
-  package: xpkg.upbound.io/cd0486/provider-azuredevops:v0.1.0
-```
-
-Getting *listed* on the [Upbound Marketplace](https://marketplace.upbound.io/providers?tier=community)
-UI (so it's discoverable/browsable, not just installable by exact
-reference) still appears to be a separate, likely self-service step through
-the Upbound console -- other community providers (e.g.
-[`ankasoftco/provider-cmdb`](https://github.com/ankasoftco/provider-cmdb),
-which is listed) distribute solely via Docker Hub with no Upbound registry
-push at all, so listing clearly isn't tied to which registry hosts the
-package.
-
-This hasn't been fully verified against Upbound's current process. Before
-pursuing it:
-
-1. Create a free account at [upbound.io](https://upbound.io).
-2. Look for a "submit"/"list your provider" flow in the Upbound console or
-   marketplace UI.
-3. If nothing is self-service, ask in the [Crossplane Slack](https://slack.crossplane.io)
-   (`#upbound` channel) or Upbound support.
-
-This is tracked as a stretch goal in
-[#41](https://github.com/dunkin0486/provider-azuredevops/issues/41) -- not
-required for the provider to be installable and usable via GHCR.
+Once valid robot credentials are added as the `UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/`_PSW`
+secrets, no code changes are needed -- CI will start pushing to Upbound's
+registry automatically.
 
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
+[#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43
