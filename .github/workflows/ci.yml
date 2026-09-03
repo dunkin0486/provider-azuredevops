@@ -179,7 +179,13 @@ jobs:
   publish-artifacts:
     runs-on: ubuntu-22.04
     needs: detect-noop
-    if: needs.detect-noop.outputs.noop != 'true'
+    # Only publish on pushes to main/release branches or tags, or when
+    # explicitly dispatched (release-please.yml dispatches this workflow on
+    # a release tag, since a tag pushed by GITHUB_TOKEN doesn't trigger
+    # other workflows on its own) -- never on pull_request events. This job
+    # pushes real package artifacts to GHCR/Upbound, which must never
+    # happen for an untrusted/in-review PR build.
+    if: needs.detect-noop.outputs.noop != 'true' && github.event_name != 'pull_request'
     permissions:
       contents: read
       # Needed to push the built package to GitHub Container Registry.
