@@ -37,10 +37,18 @@ IMAGES = provider-azuredevops
 # ====================================================================================
 # Setup XPKG
 
-XPKG_REG_ORGS ?= xpkg.upbound.io/crossplane
+# Publish to both GitHub Container Registry and the Upbound registry. GHCR
+# needs no external account (uses the workflow's own GITHUB_TOKEN); Upbound
+# registry push uses the UPBOUND_MARKETPLACE_PUSH_ROBOT_USR/PSW secrets. See
+# RELEASING.md. The upstream provider-template default
+# (xpkg.upbound.io/crossplane) is the org reserved for official
+# crossplane-contrib providers -- we can't push there, hence "cd0486" (this
+# repo owner's personal Upbound org) instead.
+XPKG_REG_ORGS ?= ghcr.io/dunkin0486 xpkg.upbound.io/cd0486
 # NOTE(hasheddan): skip promoting on xpkg.upbound.io as channel tags are
-# inferred.
-XPKG_REG_ORGS_NO_PROMOTE ?= xpkg.upbound.io/crossplane
+# inferred there; GHCR doesn't use `make promote` either since CI never
+# calls it, so both orgs are excluded.
+XPKG_REG_ORGS_NO_PROMOTE ?= ghcr.io/dunkin0486 xpkg.upbound.io/cd0486
 XPKGS = provider-azuredevops
 -include build/makelib/xpkg.mk
 
