@@ -37,10 +37,21 @@ IMAGES = provider-azuredevops
 # ====================================================================================
 # Setup XPKG
 
-XPKG_REG_ORGS ?= xpkg.upbound.io/crossplane
-# NOTE(hasheddan): skip promoting on xpkg.upbound.io as channel tags are
-# inferred.
-XPKG_REG_ORGS_NO_PROMOTE ?= xpkg.upbound.io/crossplane
+# Publish to GitHub Container Registry -- it's free, uses the repo's
+# existing GITHUB_TOKEN in CI, and Crossplane packages are just OCI images,
+# so any docker-compatible registry works for `spec.package`. See
+# RELEASING.md. The upstream provider-template default
+# (xpkg.upbound.io/crossplane) is the org reserved for official
+# crossplane-contrib providers -- we can't push there. Upbound registry
+# push (xpkg.upbound.io/cd0486) is a documented future step once a working
+# robot-account token is set up -- see RELEASING.md's "Upbound Marketplace"
+# section; the ci.yml Upbound login/publish steps stay in place, gated on
+# the UPBOUND_MARKETPLACE_PUSH_ROBOT_USR/PSW secrets being present, so
+# adding valid credentials there is all that's needed to turn it back on.
+XPKG_REG_ORGS ?= ghcr.io/dunkin0486
+# NOTE(hasheddan): skip promoting on GHCR since CI never calls `make
+# promote` here.
+XPKG_REG_ORGS_NO_PROMOTE ?= ghcr.io/dunkin0486
 XPKGS = provider-azuredevops
 -include build/makelib/xpkg.mk
 

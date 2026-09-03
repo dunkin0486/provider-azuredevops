@@ -12,6 +12,23 @@ REST API.
 See the [project roadmap] for the full list of planned resources and their
 priority.
 
+## Installing
+
+The provider is published as a Crossplane package to GitHub Container
+Registry. Install a released version with:
+
+```yaml
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azuredevops
+spec:
+  package: ghcr.io/dunkin0486/provider-azuredevops:v0.1.0
+```
+
+See [RELEASING.md] for how versions are published and how to install via
+Helm at Crossplane install time.
+
 ## Supported resources
 
 - **`Project`** (`project.azuredevops.crossplane.io/v1alpha1`) -- an Azure
@@ -63,3 +80,4 @@ guide may also be of use.
 [`examples/project/project.yaml`]: examples/project/project.yaml
 [CONTRIBUTING.md]: https://github.com/crossplane/crossplane/blob/master/CONTRIBUTING.md
 [provider-dev]: https://github.com/crossplane/crossplane/blob/master/contributing/guide-provider-development.md
+[RELEASING.md]: RELEASING.md

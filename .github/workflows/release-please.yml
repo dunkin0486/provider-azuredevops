@@ -1,0 +1,54 @@
+name: release-please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          release-type: simple
+
+      # main requires 1 approving review before merge, and GitHub won't let
+      # a PR approve itself - release-please's PR is authored by
+      # github-actions[bot] via the default GITHUB_TOKEN, so that token can
+      # never approve it. RELEASE_PLEASE_PAT is a personal access token
+      # belonging to a human maintainer (not the bot), so it can approve a
+      # PR it didn't author.
+      - name: approve and auto-merge the release PR
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_PAT }}
+          GH_REPO: ${{ github.repository }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          PR_NUMBER=$(jq -r '.number' <<< "$PR_JSON")
+          gh pr review "$PR_NUMBER" --approve --body "Auto-approved: release-please version bump."
+          gh pr merge "$PR_NUMBER" --auto --squash
+
+      # release-please pushes the tag/release using the default GITHUB_TOKEN,
+      # which GitHub deliberately excludes from triggering other workflows
+      # (avoids infinite trigger loops) - so ci.yml's `tags: v*` push trigger
+      # never fires on its own here. Dispatch it explicitly instead, using
+      # ci.yml's existing `workflow_dispatch` trigger.
+      - name: trigger provider release build
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci.yml',
+              ref: '${{ steps.release.outputs.tag_name }}',
+            })
