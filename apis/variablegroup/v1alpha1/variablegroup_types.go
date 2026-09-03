@@ -17,21 +17,16 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"context"
 	"reflect"
 
-	"github.com/crossplane/crossplane-runtime/v2/pkg/errors"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/reference"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/resource"
 	xpv2 "github.com/crossplane/crossplane/apis/v2/core/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	projectv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1"
 )
-
-const errResolveProjectID = "cannot resolve spec.forProvider.projectId"
 
 // VariableValueSource identifies where a variable's value should be read from.
 type VariableValueSource struct {
@@ -74,18 +69,20 @@ type KeyVaultReference struct {
 // VariableGroupParameters are the configurable fields of a VariableGroup.
 type VariableGroupParameters struct {
 	// ProjectID is the Azure DevOps project UUID that scopes this variable group.
+	// +crossplane:generate:reference:type=github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1.Project
+	// +crossplane:generate:reference:extractor=ProjectID()
 	// +optional
 	ProjectID string `json:"projectId,omitempty"`
 
 	// ProjectIDRef references the Azure DevOps Project resource whose observed ID
 	// should be used as this variable group's projectId.
 	// +optional
-	ProjectIDRef *xpv2.Reference `json:"projectIdRef,omitempty"`
+	ProjectIDRef *xpv2.NamespacedReference `json:"projectIdRef,omitempty"`
 
 	// ProjectIDSelector selects an Azure DevOps Project resource whose observed ID
 	// should be used as this variable group's projectId.
 	// +optional
-	ProjectIDSelector *xpv2.Selector `json:"projectIdSelector,omitempty"`
+	ProjectIDSelector *xpv2.NamespacedSelector `json:"projectIdSelector,omitempty"`
 
 	// Name of the Azure DevOps variable group.
 	// +kubebuilder:validation:Required
@@ -164,31 +161,10 @@ func init() {
 	SchemeBuilder.Register(&VariableGroup{}, &VariableGroupList{})
 }
 
-// ResolveReferences of this VariableGroup.
-func (mg *VariableGroup) ResolveReferences(ctx context.Context, c client.Reader) error {
-	r := reference.NewAPIResolver(c, any(mg).(resource.Managed))
-
-	rsp, err := r.Resolve(ctx, reference.ResolutionRequest{
-		CurrentValue: mg.Spec.ForProvider.ProjectID,
-		Reference:    mg.Spec.ForProvider.ProjectIDRef,
-		Selector:     mg.Spec.ForProvider.ProjectIDSelector,
-		To: reference.To{
-			Managed: &projectv1alpha1.Project{},
-			List:    &projectv1alpha1.ProjectList{},
-		},
-		Extract: ExtractProjectID(),
-	})
-	if err != nil {
-		return errors.Wrap(err, errResolveProjectID)
-	}
-
-	mg.Spec.ForProvider.ProjectID = rsp.ResolvedValue
-	mg.Spec.ForProvider.ProjectIDRef = rsp.ResolvedReference
-	return nil
-}
-
-// ExtractProjectID extracts a referenced Project's observed Azure DevOps GUID.
-func ExtractProjectID() reference.ExtractValueFn {
+// ProjectID extracts a referenced Project's observed Azure DevOps GUID. The
+// generated ResolveReferences (in zz_generated.resolvers.go) uses this as
+// its extractor for the ProjectID field.
+func ProjectID() reference.ExtractValueFn {
 	return func(mg resource.Managed) string {
 		r, ok := mg.(*projectv1alpha1.Project)
 		if !ok {

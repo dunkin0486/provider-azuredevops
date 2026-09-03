@@ -107,12 +107,12 @@ func (in *VariableGroupParameters) DeepCopyInto(out *VariableGroupParameters) {
 	*out = *in
 	if in.ProjectIDRef != nil {
 		in, out := &in.ProjectIDRef, &out.ProjectIDRef
-		*out = new(v2.Reference)
+		*out = new(v2.NamespacedReference)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.ProjectIDSelector != nil {
 		in, out := &in.ProjectIDSelector, &out.ProjectIDSelector
-		*out = new(v2.Selector)
+		*out = new(v2.NamespacedSelector)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Variables != nil {
