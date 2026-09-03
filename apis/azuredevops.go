@@ -22,6 +22,7 @@ import (
 
 	projectv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1"
 	azuredevopsv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/v1alpha1"
+	variablegroupv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/variablegroup/v1alpha1"
 )
 
 func init() {
@@ -29,6 +30,7 @@ func init() {
 	AddToSchemes = append(AddToSchemes,
 		azuredevopsv1alpha1.SchemeBuilder.AddToScheme,
 		projectv1alpha1.SchemeBuilder.AddToScheme,
+		variablegroupv1alpha1.SchemeBuilder.AddToScheme,
 	)
 }
 
