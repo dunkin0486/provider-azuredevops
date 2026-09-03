@@ -17,18 +17,13 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"context"
 	"reflect"
 
-	"github.com/crossplane/crossplane-runtime/v2/pkg/errors"
-	"github.com/crossplane/crossplane-runtime/v2/pkg/meta"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/reference"
 	"github.com/crossplane/crossplane-runtime/v2/pkg/resource"
 	xpv2 "github.com/crossplane/crossplane/apis/v2/core/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	projectv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1"
 )
@@ -74,17 +69,19 @@ type ServiceEndpointAzureRMParameters struct {
 
 	// ProjectID is the Azure DevOps project GUID that owns this service endpoint.
 	// Supply it directly or via ProjectIDRef / ProjectIDSelector.
+	// +crossplane:generate:reference:type=github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1.Project
+	// +crossplane:generate:reference:extractor=ProjectID()
 	// +optional
 	// +immutable
 	ProjectID string `json:"projectId,omitempty"`
 
 	// ProjectIDRef references the Azure DevOps Project whose ID should be used.
 	// +optional
-	ProjectIDRef *xpv2.Reference `json:"projectIdRef,omitempty"`
+	ProjectIDRef *xpv2.NamespacedReference `json:"projectIdRef,omitempty"`
 
 	// ProjectIDSelector selects an Azure DevOps Project whose ID should be used.
 	// +optional
-	ProjectIDSelector *xpv2.Selector `json:"projectIdSelector,omitempty"`
+	ProjectIDSelector *xpv2.NamespacedSelector `json:"projectIdSelector,omitempty"`
 
 	// AzureSubscriptionID is the target Azure subscription GUID.
 	// +kubebuilder:validation:Required
@@ -172,58 +169,14 @@ func init() {
 	SchemeBuilder.Register(&ServiceEndpointAzureRM{}, &ServiceEndpointAzureRMList{})
 }
 
-// ResolveReferences of this ServiceEndpointAzureRM.
-//
-//nolint:gocyclo // Reference resolution needs straightforward branching for direct refs and selectors.
-func (mg *ServiceEndpointAzureRM) ResolveReferences(ctx context.Context, c client.Reader) error {
-	if mg.Spec.ForProvider.ProjectID != "" && mg.Spec.ForProvider.ProjectIDRef == nil && mg.Spec.ForProvider.ProjectIDSelector == nil {
-		return nil
-	}
-
-	if ref := mg.Spec.ForProvider.ProjectIDRef; ref != nil {
-		project := &projectv1alpha1.Project{}
-		if err := c.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: mg.GetNamespace()}, project); err != nil {
-			return errors.Wrap(err, "cannot get referenced Project")
-		}
-		projectID := ExtractProjectID()(project)
-		if projectID == "" {
-			return errors.New("referenced field was empty (referenced resource may not yet be ready)")
-		}
-		mg.Spec.ForProvider.ProjectID = projectID
-		return nil
-	}
-
-	if sel := mg.Spec.ForProvider.ProjectIDSelector; sel != nil {
-		projects := &projectv1alpha1.ProjectList{}
-		if err := c.List(ctx, projects, client.MatchingLabels(sel.MatchLabels), client.InNamespace(mg.GetNamespace())); err != nil {
-			return errors.Wrap(err, "cannot list resources that match selector")
-		}
-		for i := range projects.Items {
-			p := &projects.Items[i]
-			if reference.ControllersMustMatch(sel) && !meta.HaveSameController(mg, p) {
-				continue
-			}
-			projectID := ExtractProjectID()(p)
-			if projectID == "" {
-				return errors.New("referenced field was empty (referenced resource may not yet be ready)")
-			}
-			mg.Spec.ForProvider.ProjectID = projectID
-			mg.Spec.ForProvider.ProjectIDRef = &xpv2.Reference{Name: p.GetName()}
-			return nil
-		}
-		return errors.New("no resources matched selector")
-	}
-
-	return nil
-}
-
-// ExtractProjectID extracts the Azure DevOps project GUID from a referenced Project.
-func ExtractProjectID() reference.ExtractValueFn {
+// ProjectID extracts a Project's Azure DevOps GUID from status.atProvider.id.
+// The generated ResolveReferences (in zz_generated.resolvers.go) uses this as
+// its extractor for the ProjectID field.
+func ProjectID() reference.ExtractValueFn {
 	return func(mg resource.Managed) string {
-		p, ok := mg.(*projectv1alpha1.Project)
-		if !ok {
-			return ""
+		if r, ok := mg.(*projectv1alpha1.Project); ok {
+			return r.Status.AtProvider.ID
 		}
-		return p.Status.AtProvider.ID
+		return ""
 	}
 }

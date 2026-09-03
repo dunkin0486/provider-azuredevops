@@ -43,7 +43,7 @@ func TestResolveReferences(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "example", Namespace: "default"},
 		Spec: ServiceEndpointAzureRMSpec{
 			ForProvider: ServiceEndpointAzureRMParameters{
-				ProjectIDRef: &xpv2.Reference{Name: "example-project"},
+				ProjectIDRef: &xpv2.NamespacedReference{Name: "example-project"},
 			},
 		},
 	}
