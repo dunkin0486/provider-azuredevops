@@ -8,7 +8,17 @@ on:
     tags:
       - 'v*'
   pull_request: {}
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_publish_branch:
+        description: >-
+          TEMPORARY (#43 verification): override BRANCH_NAME for the
+          Publish Artifacts step, so a manual dispatch on a feature branch
+          can exercise the real `make publish` push (normally gated to
+          main/release-*). Leave blank for normal behavior. Remove this
+          input once the real push to xpkg.upbound.io/cd0486 is confirmed.
+        required: false
+        type: string
 
 env:
   # Common versions
@@ -285,9 +295,13 @@ jobs:
           if [[ -n "${UPBOUND_MARKETPLACE_PUSH_ROBOT_USR}" ]]; then
             XPKG_REG_ORGS="${XPKG_REG_ORGS} xpkg.upbound.io/cd0486"
           fi
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [[ -n "${FORCE_PUBLISH_BRANCH}" ]]; then
+            make publish BRANCH_NAME="${FORCE_PUBLISH_BRANCH}" XPKG_REG_ORGS="${XPKG_REG_ORGS}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             make publish BRANCH_NAME=main XPKG_REG_ORGS="${XPKG_REG_ORGS}"
           else
             make publish BRANCH_NAME=${GITHUB_REF##*/} XPKG_REG_ORGS="${XPKG_REG_ORGS}"
           fi
+        env:
+          FORCE_PUBLISH_BRANCH: ${{ inputs.force_publish_branch }}
 
