@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	projectv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1"
+	serviceendpointazurermv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointazurerm/v1alpha1"
 	azuredevopsv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/v1alpha1"
 )
 
@@ -29,6 +30,7 @@ func init() {
 	AddToSchemes = append(AddToSchemes,
 		azuredevopsv1alpha1.SchemeBuilder.AddToScheme,
 		projectv1alpha1.SchemeBuilder.AddToScheme,
+		serviceendpointazurermv1alpha1.SchemeBuilder.AddToScheme,
 	)
 }
 
