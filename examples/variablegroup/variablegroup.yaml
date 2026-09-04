@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: variablegroup-secrets
+  namespace: default
+type: Opaque
+stringData:
+  api-key: REPLACE_ME
+---
+apiVersion: variablegroup.azuredevops.crossplane.io/v1alpha1
+kind: VariableGroup
+metadata:
+  name: example-variablegroup
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    name: shared-pipeline-variables
+    description: Variables shared across multiple pipelines.
+    variables:
+      - name: LOG_LEVEL
+        value: info
+      - name: API_KEY
+        isSecret: true
+        valueFrom:
+          secretKeyRef:
+            name: variablegroup-secrets
+            namespace: default
+            key: api-key
+---
+# Azure Key Vault-linked variable group example.
+apiVersion: variablegroup.azuredevops.crossplane.io/v1alpha1
+kind: VariableGroup
+metadata:
+  name: example-keyvault-variablegroup
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectId: 11111111-1111-1111-1111-111111111111
+    name: shared-keyvault-variables
+    description: Variables sourced from Azure Key Vault.
+    keyVault:
+      serviceEndpointId: 22222222-2222-2222-2222-222222222222
+      name: example-kv
