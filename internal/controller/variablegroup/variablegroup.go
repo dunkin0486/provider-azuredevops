@@ -6,7 +6,10 @@ package variablegroup
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -50,6 +53,15 @@ const (
 	variableGroupTypeVsts          = "Vsts"
 	variableGroupTypeAzureKeyVault = "AzureKeyVault"
 )
+
+// annotationSecretsHash stores a SHA-256 hash of the currently-applied
+// secret-valued variables' plaintext values. Azure DevOps never returns
+// secret variable values back on read, so there is no way to detect drift
+// (e.g. a rotated Kubernetes Secret) by comparing against the observed
+// variable group alone -- this annotation lets Observe detect that the
+// *referenced* Secret's value has changed since the last Create/Update and
+// force a resync.
+const annotationSecretsHash = "variablegroup.azuredevops.crossplane.io/secrets-hash"
 
 // SetupGated adds a controller that reconciles VariableGroup managed resources with safe-start support.
 func SetupGated(mgr ctrl.Manager, o controller.Options) error {
@@ -158,12 +170,37 @@ func (c *external) Observe(ctx context.Context, cr *v1alpha1.VariableGroup) (man
 	if err != nil {
 		return managed.ExternalObservation{}, errors.Wrap(err, errGetVariableGroup)
 	}
+	if upToDate {
+		upToDate, err = c.secretsUpToDate(ctx, cr)
+		if err != nil {
+			return managed.ExternalObservation{}, errors.Wrap(err, errGetVariableGroup)
+		}
+	}
 
 	return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: upToDate}, nil
 }
 
+// secretsUpToDate detects drift that isUpToDate never can: Azure DevOps
+// never returns secret-variable values back on read, so the only way to
+// tell that a referenced Kubernetes Secret's value has since changed (e.g.
+// a rotated credential) is to re-resolve it now and compare its hash
+// against the one captured at the last Create/Update.
+func (c *external) secretsUpToDate(ctx context.Context, cr *v1alpha1.VariableGroup) (bool, error) {
+	if cr.Spec.ForProvider.KeyVault != nil {
+		return true, nil
+	}
+	hash, err := c.currentSecretsHash(ctx, cr.Spec.ForProvider)
+	if err != nil {
+		return false, err
+	}
+	if hash == "" {
+		return true, nil
+	}
+	return hash == cr.GetAnnotations()[annotationSecretsHash], nil
+}
+
 func (c *external) Create(ctx context.Context, cr *v1alpha1.VariableGroup) (managed.ExternalCreation, error) {
-	payload, _, err := c.buildVariableGroupParameters(ctx, cr)
+	payload, err := c.buildVariableGroupParameters(ctx, cr)
 	if err != nil {
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateVariableGroup)
 	}
@@ -178,6 +215,7 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.VariableGroup) (mana
 		meta.SetExternalName(cr, id)
 	}
 	cr.Status.AtProvider = observationFromVariableGroup(vg)
+	setSecretsHashAnnotation(cr, payload.Variables)
 
 	return managed.ExternalCreation{}, nil
 }
@@ -191,7 +229,7 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.VariableGroup) (mana
 		return managed.ExternalUpdate{}, errors.New(errUpdateVariableGroup)
 	}
 
-	payload, _, err := c.buildVariableGroupParameters(ctx, cr)
+	payload, err := c.buildVariableGroupParameters(ctx, cr)
 	if err != nil {
 		return managed.ExternalUpdate{}, errors.Wrap(err, errUpdateVariableGroup)
 	}
@@ -205,6 +243,7 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.VariableGroup) (mana
 	}
 
 	cr.Status.AtProvider = observationFromVariableGroup(vg)
+	setSecretsHashAnnotation(cr, payload.Variables)
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -217,7 +256,13 @@ func (c *external) Delete(ctx context.Context, cr *v1alpha1.VariableGroup) (mana
 		return managed.ExternalDelete{}, nil
 	}
 
-	_, projectIDs, err := c.buildVariableGroupParameters(ctx, cr)
+	// Deliberately avoid buildVariableGroupParameters here: it resolves
+	// secret variable values via k8s Secret lookups, which are irrelevant
+	// for deletion (only the project ID(s) are needed) and can fail if a
+	// referenced Secret has already been removed during a cascading
+	// teardown -- that would wrongly block Delete forever since the
+	// finalizer could never be released.
+	projectIDs, err := projectIDsForDelete(cr.Spec.ForProvider)
 	if err != nil {
 		return managed.ExternalDelete{}, errors.Wrap(err, errDeleteVariableGroup)
 	}
@@ -240,15 +285,15 @@ func (c *external) Disconnect(_ context.Context) error {
 	return nil
 }
 
-func (c *external) buildVariableGroupParameters(ctx context.Context, cr *v1alpha1.VariableGroup) (*taskagent.VariableGroupParameters, []string, error) {
+func (c *external) buildVariableGroupParameters(ctx context.Context, cr *v1alpha1.VariableGroup) (*taskagent.VariableGroupParameters, error) {
 	p := cr.Spec.ForProvider
 	if err := validateParameters(p); err != nil {
-		return nil, nil, errors.Wrap(err, errInvalidParameters)
+		return nil, errors.Wrap(err, errInvalidParameters)
 	}
 
-	projectRef, projectIDs, err := buildProjectReference(p)
+	projectRef, _, err := buildProjectReference(p)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	payload := &taskagent.VariableGroupParameters{
@@ -264,7 +309,7 @@ func (c *external) buildVariableGroupParameters(ctx context.Context, cr *v1alpha
 	if p.KeyVault != nil {
 		serviceEndpointID, err := parseServiceEndpointID(p.KeyVault.ServiceEndpointID)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		groupType := variableGroupTypeAzureKeyVault
 		payload.Type = &groupType
@@ -272,17 +317,17 @@ func (c *external) buildVariableGroupParameters(ctx context.Context, cr *v1alpha
 			ServiceEndpointId: serviceEndpointID,
 			Vault:             &p.KeyVault.Name,
 		}
-		return payload, projectIDs, nil
+		return payload, nil
 	}
 
 	variables, err := c.resolveVariables(ctx, p.Variables)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	groupType := variableGroupTypeVsts
 	payload.Type = &groupType
 	payload.Variables = &variables
-	return payload, projectIDs, nil
+	return payload, nil
 }
 
 func (c *external) resolveVariables(ctx context.Context, variables []v1alpha1.VariableGroupVariable) (map[string]interface{}, error) {
@@ -319,6 +364,66 @@ func (c *external) resolveSecretValue(ctx context.Context, selector xpv2.SecretK
 		return "", errors.Wrap(errors.Errorf("secret %s/%s does not contain key %q", selector.Namespace, selector.Name, selector.Key), errResolveSecret)
 	}
 	return string(value), nil
+}
+
+// currentSecretsHash re-resolves p's secret-valued variables from their
+// referenced Kubernetes Secrets right now and returns a hash of their
+// current values, so Observe can detect drift that Azure DevOps' API can
+// never surface (it never returns secret values back). Returns "" if there
+// are no secret variables at all.
+func (c *external) currentSecretsHash(ctx context.Context, p v1alpha1.VariableGroupParameters) (string, error) {
+	resolved, err := c.resolveVariables(ctx, p.Variables)
+	if err != nil {
+		return "", err
+	}
+	return secretsHashFromVariables(&resolved)
+}
+
+// setSecretsHashAnnotation records a hash of payload's secret-valued
+// variables on cr so a future Observe can detect if the referenced Secret's
+// value has since changed (see annotationSecretsHash).
+func setSecretsHashAnnotation(cr *v1alpha1.VariableGroup, variables *map[string]interface{}) {
+	hash, err := secretsHashFromVariables(variables)
+	if err != nil || hash == "" {
+		return
+	}
+	meta.AddAnnotations(cr, map[string]string{annotationSecretsHash: hash})
+}
+
+// secretsHashFromVariables computes a deterministic SHA-256 hash over the
+// name/value pairs of every variable in variables that is marked secret.
+// Returns "" if there are no secret variables, so callers can distinguish
+// "no secrets to track" from "hash of zero-length secrets".
+func secretsHashFromVariables(variables *map[string]interface{}) (string, error) {
+	if variables == nil {
+		return "", nil
+	}
+	names := make([]string, 0, len(*variables))
+	values := make(map[string]string, len(*variables))
+	for name, raw := range *variables {
+		vv, err := decodeVariableValue(raw)
+		if err != nil {
+			return "", err
+		}
+		if !boolValue(vv.IsSecret) {
+			continue
+		}
+		names = append(names, name)
+		values[name] = valueOrEmpty(vv.Value)
+	}
+	if len(names) == 0 {
+		return "", nil
+	}
+	sort.Strings(names)
+
+	h := sha256.New()
+	for _, name := range names {
+		h.Write([]byte(name))
+		h.Write([]byte{0})
+		h.Write([]byte(values[name]))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func observationFromVariableGroup(vg *taskagent.VariableGroup) v1alpha1.VariableGroupObservation {
@@ -415,6 +520,17 @@ func buildProjectReference(p v1alpha1.VariableGroupParameters) (*taskagent.Proje
 	}
 	id := projectID.String()
 	return &taskagent.ProjectReference{Id: projectID}, []string{id}, nil
+}
+
+// projectIDsForDelete returns the project ID(s) needed to call
+// DeleteVariableGroup without resolving variable values/secrets, which are
+// irrelevant for deletion and must not be able to block it.
+func projectIDsForDelete(p v1alpha1.VariableGroupParameters) ([]string, error) {
+	if p.ProjectID == "" {
+		return nil, errors.New("projectId is required")
+	}
+	_, projectIDs, err := buildProjectReference(p)
+	return projectIDs, err
 }
 
 func parseProjectID(s string) (*uuid.UUID, error) {

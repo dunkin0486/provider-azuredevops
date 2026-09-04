@@ -28,9 +28,13 @@ import (
 )
 
 const (
-	testPlainVarName = "plain"
-	testPlainValue   = "plain"
-	testExampleName  = "example"
+	testPlainVarName  = "plain"
+	testPlainValue    = "plain"
+	testExampleName   = "example"
+	testSecretValue   = "s3cr3t"
+	testSecretVarName = "secret"
+	testNamespace     = "default"
+	testSecretDataKey = "value"
 )
 
 func variableGroupCRWith(name string, mutate func(*v1alpha1.VariableGroup)) *v1alpha1.VariableGroup {
@@ -67,6 +71,7 @@ func TestObserve(t *testing.T) {
 
 	type fields struct {
 		client VariableGroupClient
+		kube   ctrlclient.Client
 	}
 	type args struct {
 		cr *v1alpha1.VariableGroup
@@ -100,29 +105,36 @@ func TestObserve(t *testing.T) {
 			want: want{observation: managed.ExternalObservation{ResourceExists: false}},
 		},
 		"UpToDate": {
-			fields: fields{client: &fakevg.VariableGroupClient{GetVariableGroupFn: func(_ context.Context, args taskagent.GetVariableGroupArgs) (*taskagent.VariableGroup, error) {
-				if args.Project == nil || *args.Project != projectID.String() {
-					t.Fatalf("GetVariableGroup project = %v, want %s", args.Project, projectID)
-				}
-				return &taskagent.VariableGroup{
-					Id:          intPtr(41),
-					Name:        strPtr(testExampleName),
-					Description: strPtr("shared vars"),
-					Type:        strPtr(variableGroupTypeVsts),
-					VariableGroupProjectReferences: &[]taskagent.VariableGroupProjectReference{{
-						ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(projectID)},
-					}},
-					Variables: &map[string]interface{}{
-						testPlainVarName: taskagent.VariableValue{Value: strPtr(testPlainValue)},
-						"secret":         secretValue,
-					},
-				}, nil
-			}}},
+			fields: fields{
+				client: &fakevg.VariableGroupClient{GetVariableGroupFn: func(_ context.Context, args taskagent.GetVariableGroupArgs) (*taskagent.VariableGroup, error) {
+					if args.Project == nil || *args.Project != projectID.String() {
+						t.Fatalf("GetVariableGroup project = %v, want %s", args.Project, projectID)
+					}
+					return &taskagent.VariableGroup{
+						Id:          intPtr(41),
+						Name:        strPtr(testExampleName),
+						Description: strPtr("shared vars"),
+						Type:        strPtr(variableGroupTypeVsts),
+						VariableGroupProjectReferences: &[]taskagent.VariableGroupProjectReference{{
+							ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(projectID)},
+						}},
+						Variables: &map[string]interface{}{
+							testPlainVarName:  taskagent.VariableValue{Value: strPtr(testPlainValue)},
+							testSecretVarName: secretValue,
+						},
+					}, nil
+				}},
+				kube: fakeClient(t, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "ignored", Namespace: testNamespace},
+					Data:       map[string][]byte{testSecretDataKey: []byte(testSecretValue)},
+				}),
+			},
 			args: args{cr: variableGroupCRWith("41", func(cr *v1alpha1.VariableGroup) {
 				cr.Spec.ForProvider.ProjectID = projectID.String()
 				cr.Spec.ForProvider.Name = testExampleName
 				cr.Spec.ForProvider.Description = "shared vars"
-				cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{{Name: testPlainVarName, Value: testPlainValue}, {Name: "secret", IsSecret: true, ValueFrom: &v1alpha1.VariableValueSource{SecretKeyRef: xpv2.SecretKeySelector{SecretReference: xpv2.SecretReference{Name: "ignored", Namespace: "default"}, Key: "value"}}}}
+				cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{{Name: testPlainVarName, Value: testPlainValue}, {Name: testSecretVarName, IsSecret: true, ValueFrom: &v1alpha1.VariableValueSource{SecretKeyRef: xpv2.SecretKeySelector{SecretReference: xpv2.SecretReference{Name: "ignored", Namespace: testNamespace}, Key: testSecretDataKey}}}}
+				setSecretsHashAnnotation(cr, &map[string]interface{}{testSecretVarName: taskagent.VariableValue{IsSecret: boolPtr(true), Value: strPtr(testSecretValue)}})
 			})},
 			want: want{observation: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.TypeReady, reason: xpv2.ReasonAvailable},
 		},
@@ -145,11 +157,40 @@ func TestObserve(t *testing.T) {
 			})},
 			want: want{observation: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, condition: xpv2.TypeReady, reason: xpv2.ReasonAvailable},
 		},
+		"SecretRotated": {
+			fields: fields{
+				client: &fakevg.VariableGroupClient{GetVariableGroupFn: func(_ context.Context, _ taskagent.GetVariableGroupArgs) (*taskagent.VariableGroup, error) {
+					return &taskagent.VariableGroup{
+						Id:   intPtr(41),
+						Name: strPtr(testExampleName),
+						Type: strPtr(variableGroupTypeVsts),
+						VariableGroupProjectReferences: &[]taskagent.VariableGroupProjectReference{{
+							ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(projectID)},
+						}},
+						Variables: &map[string]interface{}{testSecretVarName: secretValue},
+					}, nil
+				}},
+				// The Secret now holds a different value than what was
+				// hashed at last Create/Update -- Observe must detect this
+				// even though Azure DevOps' response above is unchanged.
+				kube: fakeClient(t, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "ignored", Namespace: testNamespace},
+					Data:       map[string][]byte{testSecretDataKey: []byte("rotated-value")},
+				}),
+			},
+			args: args{cr: variableGroupCRWith("41", func(cr *v1alpha1.VariableGroup) {
+				cr.Spec.ForProvider.ProjectID = projectID.String()
+				cr.Spec.ForProvider.Name = testExampleName
+				cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{{Name: testSecretVarName, IsSecret: true, ValueFrom: &v1alpha1.VariableValueSource{SecretKeyRef: xpv2.SecretKeySelector{SecretReference: xpv2.SecretReference{Name: "ignored", Namespace: testNamespace}, Key: testSecretDataKey}}}}
+				setSecretsHashAnnotation(cr, &map[string]interface{}{testSecretVarName: taskagent.VariableValue{IsSecret: boolPtr(true), Value: strPtr(testSecretValue)}})
+			})},
+			want: want{observation: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, condition: xpv2.TypeReady, reason: xpv2.ReasonAvailable},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			e := external{variablegroups: tc.fields.client}
+			e := external{variablegroups: tc.fields.client, kube: tc.fields.kube}
 			got, err := e.Observe(context.Background(), tc.args.cr)
 			if diff := cmp.Diff(tc.want.err, err, test.EquateErrors()); diff != "" {
 				t.Fatalf("Observe(...): -want error, +got error:\n%s", diff)
@@ -173,22 +214,22 @@ func TestCreateResolvesSecretsAndDoesNotPersistThem(t *testing.T) {
 	var payload *taskagent.VariableGroupParameters
 
 	kube := fakeClient(t, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "vg-secret", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "vg-secret", Namespace: testNamespace},
 		Data:       map[string][]byte{"password": []byte(secretValue)},
 	})
 
 	cr := variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) {
-		cr.SetNamespace("default")
+		cr.SetNamespace(testNamespace)
 		cr.Spec.ForProvider.ProjectID = projectID.String()
 		cr.Spec.ForProvider.Name = testExampleName
 		cr.Spec.ForProvider.Description = "shared vars"
 		cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{
 			{Name: testPlainVarName, Value: "hello"},
 			{
-				Name:     "secret",
+				Name:     testSecretVarName,
 				IsSecret: true,
 				ValueFrom: &v1alpha1.VariableValueSource{SecretKeyRef: xpv2.SecretKeySelector{
-					SecretReference: xpv2.SecretReference{Name: "vg-secret", Namespace: "default"},
+					SecretReference: xpv2.SecretReference{Name: "vg-secret", Namespace: testNamespace},
 					Key:             "password",
 				}},
 			},
@@ -219,7 +260,7 @@ func TestCreateResolvesSecretsAndDoesNotPersistThem(t *testing.T) {
 	if payload == nil || payload.Variables == nil {
 		t.Fatal("Create(...): AddVariableGroup payload missing variables")
 	}
-	secretVar, err := decodeVariableValue((*payload.Variables)["secret"])
+	secretVar, err := decodeVariableValue((*payload.Variables)[testSecretVarName])
 	if err != nil {
 		t.Fatalf("decodeVariableValue(...): %v", err)
 	}
@@ -283,6 +324,50 @@ func TestDelete(t *testing.T) {
 		cr.Spec.ForProvider.ProjectID = projectID.String()
 	})
 
+	e := external{variablegroups: &fakevg.VariableGroupClient{DeleteVariableGroupFn: func(_ context.Context, args taskagent.DeleteVariableGroupArgs) error {
+		deleted = true
+		if args.GroupId == nil || *args.GroupId != 55 {
+			t.Fatalf("Delete(...): group id = %v, want 55", args.GroupId)
+		}
+		if args.ProjectIds == nil || len(*args.ProjectIds) != 1 || (*args.ProjectIds)[0] != projectID.String() {
+			t.Fatalf("Delete(...): project ids = %v, want [%s]", args.ProjectIds, projectID)
+		}
+		return nil
+	}}}
+
+	if _, err := e.Delete(context.Background(), cr); err != nil {
+		t.Fatalf("Delete(...): unexpected error: %v", err)
+	}
+	if !deleted {
+		t.Fatal("Delete(...): DeleteVariableGroup was not called")
+	}
+}
+
+// TestDeleteDoesNotResolveSecrets guards against a regression where Delete
+// resolved secret variable values (via k8s Secret lookups) before deleting,
+// which meant a variable group with a secret variable whose referenced
+// Secret had already been removed (e.g. during a cascading namespace
+// teardown) could never actually be deleted -- the finalizer would be
+// stuck forever even though deleting only requires the group/project IDs.
+func TestDeleteDoesNotResolveSecrets(t *testing.T) {
+	projectID := uuid.New()
+	deleted := false
+
+	cr := variableGroupCRWith("55", func(cr *v1alpha1.VariableGroup) {
+		cr.Spec.ForProvider.ProjectID = projectID.String()
+		cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{{
+			Name:     testSecretVarName,
+			IsSecret: true,
+			ValueFrom: &v1alpha1.VariableValueSource{SecretKeyRef: xpv2.SecretKeySelector{
+				SecretReference: xpv2.SecretReference{Name: "already-deleted", Namespace: testNamespace},
+				Key:             testSecretDataKey,
+			}},
+		}}
+	})
+
+	// Deliberately no kube client / Secret provided: resolving the
+	// referenced Secret would fail (nil kube client panics; a real client
+	// would return NotFound), simulating the Secret already being gone.
 	e := external{variablegroups: &fakevg.VariableGroupClient{DeleteVariableGroupFn: func(_ context.Context, args taskagent.DeleteVariableGroupArgs) error {
 		deleted = true
 		if args.GroupId == nil || *args.GroupId != 55 {
