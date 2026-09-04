@@ -10,4 +10,7 @@ spec:
     name: example-repository
     projectIdRef:
       name: example-project
+    # defaultBranch can only be applied once the repository has at least one
+    # commit. On a brand-new, empty repository the provider defers setting
+    # it and retries automatically on later reconciles.
     defaultBranch: refs/heads/main

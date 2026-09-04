@@ -189,11 +189,47 @@ func TestCreate(t *testing.T) {
 		if createArgs.GitRepositoryToCreate == nil || createArgs.GitRepositoryToCreate.Name == nil || *createArgs.GitRepositoryToCreate.Name != "example-repository" {
 			t.Fatalf("CreateRepository called with unexpected payload: %+v", createArgs.GitRepositoryToCreate)
 		}
-		if updateArgs.NewRepositoryInfo == nil || updateArgs.NewRepositoryInfo.DefaultBranch == nil || *updateArgs.NewRepositoryInfo.DefaultBranch != defaultBranchRef {
-			t.Fatalf("UpdateRepository called with unexpected patch: %+v", updateArgs.NewRepositoryInfo)
+		// The freshly-created repository has no commits (DefaultBranch is
+		// nil), so Azure DevOps would reject setting defaultBranch on it.
+		// The controller must skip it here and let a later reconcile set it
+		// once the repository actually has a branch.
+		if updateArgs.NewRepositoryInfo == nil || updateArgs.NewRepositoryInfo.DefaultBranch != nil {
+			t.Fatalf("UpdateRepository unexpectedly set defaultBranch on an empty repository: %+v", updateArgs.NewRepositoryInfo)
 		}
 		if updateArgs.NewRepositoryInfo.IsDisabled == nil || !*updateArgs.NewRepositoryInfo.IsDisabled {
 			t.Fatalf("UpdateRepository did not set disabled=true: %+v", updateArgs.NewRepositoryInfo)
+		}
+	})
+
+	t.Run("SetsDefaultBranchWhenRepositoryAlreadyHasCommits", func(t *testing.T) {
+		var updateArgs adogit.UpdateRepositoryArgs
+		e := external{git: &fake.GitRepositoryClient{
+			CreateRepositoryFn: func(_ context.Context, _ adogit.CreateRepositoryArgs) (*adogit.GitRepository, error) {
+				// Simulate creating a repository from a parent (fork), which
+				// already has commits and a default branch.
+				return repository(repoID, func(repo *adogit.GitRepository) {
+					repo.DefaultBranch = stringPtr("refs/heads/master")
+					repo.IsDisabled = nil
+				}), nil
+			},
+			UpdateRepositoryFn: func(_ context.Context, args adogit.UpdateRepositoryArgs) (*adogit.GitRepository, error) {
+				updateArgs = args
+				return repository(repoID, func(repo *adogit.GitRepository) {
+					repo.DefaultBranch = stringPtr(defaultBranchRef)
+				}), nil
+			},
+		}}
+
+		cr := gitRepositoryWith("", func(cr *v1alpha1.GitRepository) {
+			cr.Spec.ForProvider.ProjectID = projectID
+			cr.Spec.ForProvider.DefaultBranch = defaultBranchRef
+		})
+
+		if _, err := e.Create(context.Background(), cr); err != nil {
+			t.Fatalf("e.Create(...): unexpected error: %v", err)
+		}
+		if updateArgs.NewRepositoryInfo == nil || updateArgs.NewRepositoryInfo.DefaultBranch == nil || *updateArgs.NewRepositoryInfo.DefaultBranch != defaultBranchRef {
+			t.Fatalf("UpdateRepository called with unexpected patch: %+v", updateArgs.NewRepositoryInfo)
 		}
 	})
 
@@ -238,6 +274,36 @@ func TestUpdate(t *testing.T) {
 		}
 		if gotUpdate.NewRepositoryInfo == nil || gotUpdate.NewRepositoryInfo.Name == nil || *gotUpdate.NewRepositoryInfo.Name != "renamed-repository" {
 			t.Fatalf("UpdateRepository patch = %+v, want renamed-repository", gotUpdate.NewRepositoryInfo)
+		}
+	})
+
+	t.Run("SkipsDefaultBranchOnEmptyRepository", func(t *testing.T) {
+		var gotUpdate adogit.UpdateRepositoryArgs
+		called := false
+		e := external{git: &fake.GitRepositoryClient{
+			GetRepositoryFn: func(_ context.Context, _ adogit.GetRepositoryArgs) (*adogit.GitRepository, error) {
+				return repository(repoID, func(repo *adogit.GitRepository) {
+					repo.DefaultBranch = nil
+				}), nil
+			},
+			UpdateRepositoryFn: func(_ context.Context, args adogit.UpdateRepositoryArgs) (*adogit.GitRepository, error) {
+				called = true
+				gotUpdate = args
+				return repository(repoID, func(repo *adogit.GitRepository) {
+					repo.DefaultBranch = nil
+				}), nil
+			},
+		}}
+
+		cr := gitRepositoryWith(repoID.String(), func(cr *v1alpha1.GitRepository) {
+			cr.Spec.ForProvider.DefaultBranch = defaultBranchRef
+		})
+
+		if _, err := e.Update(context.Background(), cr); err != nil {
+			t.Fatalf("e.Update(...): unexpected error: %v", err)
+		}
+		if called && gotUpdate.NewRepositoryInfo != nil && gotUpdate.NewRepositoryInfo.DefaultBranch != nil {
+			t.Fatalf("UpdateRepository unexpectedly set defaultBranch on an empty repository: %+v", gotUpdate.NewRepositoryInfo)
 		}
 	})
 

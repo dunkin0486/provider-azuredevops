@@ -188,6 +188,13 @@ func (e *external) Create(ctx context.Context, cr *v1alpha1.GitRepository) (mana
 	return managed.ExternalCreation{}, nil
 }
 
+// isRepositoryEmpty reports whether repo has no commits yet, meaning it has
+// no default branch. Azure DevOps rejects requests that set defaultBranch on
+// such a repository.
+func isRepositoryEmpty(repo *adogit.GitRepository) bool {
+	return repo == nil || repo.DefaultBranch == nil || *repo.DefaultBranch == ""
+}
+
 func (e *external) Update(ctx context.Context, cr *v1alpha1.GitRepository) (managed.ExternalUpdate, error) {
 	projectID, err := getProjectID(cr)
 	if err != nil {
@@ -260,7 +267,11 @@ func (e *external) updateRepository(ctx context.Context, projectID string, repos
 		patch.Name = stringPtr(desired.Name)
 		changed = true
 	}
-	if desired.DefaultBranch != "" && (current == nil || current.DefaultBranch == nil || *current.DefaultBranch != desired.DefaultBranch) {
+	if desired.DefaultBranch != "" && !isRepositoryEmpty(current) && (current == nil || current.DefaultBranch == nil || *current.DefaultBranch != desired.DefaultBranch) {
+		// Azure DevOps rejects setting defaultBranch on a repository that has
+		// no commits yet (a brand-new repository has no refs to point at).
+		// Skip it here; a later reconcile will retry and succeed once the
+		// repository has at least one commit and a real default branch.
 		patch.DefaultBranch = stringPtr(desired.DefaultBranch)
 		changed = true
 	}
