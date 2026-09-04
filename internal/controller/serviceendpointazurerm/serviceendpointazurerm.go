@@ -6,6 +6,8 @@ package serviceendpointazurerm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/controller"
@@ -65,6 +67,15 @@ const (
 	dataKeyTenantID                          = "tenantid"
 	dataKeyServicePrincipalID                = "serviceprincipalid"
 )
+
+// annotationClientSecretHash stores a SHA-256 hash of the service
+// principal's client secret value that was last pushed to Azure DevOps.
+// Azure DevOps never returns the stored secret back on read, so isUpToDate
+// can only compare non-secret fields -- this annotation lets Observe
+// detect that the *referenced* Secret's value has since been rotated and
+// force a resync (otherwise a rotated secret would silently never
+// propagate to Azure DevOps).
+const annotationClientSecretHash = "serviceendpointazurerm.azuredevops.crossplane.io/client-secret-hash"
 
 // SetupGated adds a controller that reconciles ServiceEndpointAzureRM managed resources with safe-start support.
 func SetupGated(mgr ctrl.Manager, o controller.Options) error {
@@ -168,11 +179,37 @@ func (c *external) Observe(ctx context.Context, cr *v1alpha1.ServiceEndpointAzur
 		cr.SetConditions(xpv2.Creating())
 	}
 
-	return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: isUpToDate(cr.Spec.ForProvider, endpoint)}, nil
+	upToDate := isUpToDate(cr.Spec.ForProvider, endpoint)
+	if upToDate {
+		secretUpToDate, err := c.clientSecretUpToDate(ctx, cr)
+		if err != nil {
+			return managed.ExternalObservation{}, err
+		}
+		upToDate = secretUpToDate
+	}
+
+	return managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: upToDate}, nil
+}
+
+// clientSecretUpToDate detects drift that isUpToDate never can: Azure
+// DevOps never returns the service principal's client secret back on read,
+// so the only way to tell that the referenced Secret's value has since
+// been rotated is to re-resolve it now and compare its hash against the
+// one captured at the last Create/Update.
+func (c *external) clientSecretUpToDate(ctx context.Context, cr *v1alpha1.ServiceEndpointAzureRM) (bool, error) {
+	secret, err := c.resolveClientSecretValue(ctx, cr.Spec.ForProvider)
+	if err != nil {
+		return false, err
+	}
+	if secret == "" {
+		// WorkloadIdentityFederation credentials have no secret to track.
+		return true, nil
+	}
+	return hashClientSecret(secret) == cr.GetAnnotations()[annotationClientSecretHash], nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointAzureRM) (managed.ExternalCreation, error) {
-	endpoint, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
+	endpoint, secret, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
@@ -191,6 +228,7 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointAzure
 	if cr.Status.AtProvider.ID != "" {
 		meta.SetExternalName(cr, cr.Status.AtProvider.ID)
 	}
+	setClientSecretHashAnnotation(cr, secret)
 
 	return managed.ExternalCreation{}, nil
 }
@@ -201,7 +239,7 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointAzure
 		return managed.ExternalUpdate{}, err
 	}
 
-	endpoint, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
+	endpoint, secret, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
@@ -221,6 +259,7 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointAzure
 	}
 
 	cr.Status.AtProvider = observationFromServiceEndpoint(updated)
+	setClientSecretHashAnnotation(cr, secret)
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -265,19 +304,19 @@ func (c *external) getServiceEndpoint(ctx context.Context, projectID string, end
 	return endpoint, err
 }
 
-func (c *external) buildServiceEndpoint(ctx context.Context, p v1alpha1.ServiceEndpointAzureRMParameters) (*serviceendpoint.ServiceEndpoint, error) {
+func (c *external) buildServiceEndpoint(ctx context.Context, p v1alpha1.ServiceEndpointAzureRMParameters) (*serviceendpoint.ServiceEndpoint, string, error) {
 	if err := validateParameters(p); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	projectID, err := parseUUID(p.ProjectID, "project id")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	authorization, _, err := c.resolveAuthorization(ctx, p)
+	authorization, secret, err := c.resolveAuthorization(ctx, p)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	data := desiredData(p, authClientID(p.Credentials), p.AzureTenantID)
@@ -303,7 +342,7 @@ func (c *external) buildServiceEndpoint(ctx context.Context, p v1alpha1.ServiceE
 		}},
 		Type: &typ,
 		Url:  &url,
-	}, nil
+	}, secret, nil
 }
 
 func (c *external) resolveAuthorization(ctx context.Context, p v1alpha1.ServiceEndpointAzureRMParameters) (*serviceendpoint.EndpointAuthorization, string, error) {
@@ -317,18 +356,50 @@ func (c *external) resolveAuthorization(ctx context.Context, p v1alpha1.ServiceE
 		authParamServicePrincipalID: clientID,
 	}
 
+	secret, err := c.resolveClientSecretValue(ctx, p)
+	if err != nil {
+		return nil, "", err
+	}
 	if scheme == serviceEndpointAuthorizationServicePrinc {
-		secret, err := resource.CommonCredentialExtractor(ctx, xpv2.CredentialsSourceSecret, c.kube, xpv2.CommonCredentialSelectors{
-			SecretRef: &p.Credentials.ServicePrincipal.ClientSecretRef,
-		})
-		if err != nil {
-			return nil, "", errors.Wrap(err, errResolveClientSecret)
-		}
 		params[authParamAuthenticationType] = authParamAuthenticationTypeSPNKey
-		params[authParamServicePrincipalKey] = string(secret)
+		params[authParamServicePrincipalKey] = secret
 	}
 
-	return &serviceendpoint.EndpointAuthorization{Parameters: &params, Scheme: &scheme}, scheme, nil
+	return &serviceendpoint.EndpointAuthorization{Parameters: &params, Scheme: &scheme}, secret, nil
+}
+
+// resolveClientSecretValue resolves the service principal's client secret
+// from its referenced Kubernetes Secret. Returns "" (no error) for
+// WorkloadIdentityFederation credentials, which have no secret.
+func (c *external) resolveClientSecretValue(ctx context.Context, p v1alpha1.ServiceEndpointAzureRMParameters) (string, error) {
+	if p.Credentials.ServicePrincipal == nil {
+		return "", nil
+	}
+	secret, err := resource.CommonCredentialExtractor(ctx, xpv2.CredentialsSourceSecret, c.kube, xpv2.CommonCredentialSelectors{
+		SecretRef: &p.Credentials.ServicePrincipal.ClientSecretRef,
+	})
+	if err != nil {
+		return "", errors.Wrap(err, errResolveClientSecret)
+	}
+	return string(secret), nil
+}
+
+// hashClientSecret returns a SHA-256 hex digest of secret, for storing in
+// annotationClientSecretHash without persisting the plaintext value itself.
+func hashClientSecret(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:])
+}
+
+// setClientSecretHashAnnotation records a hash of secret on cr so a future
+// Observe can detect if the referenced Secret's value has since changed
+// (see annotationClientSecretHash). No-op if secret is empty (i.e.
+// WorkloadIdentityFederation credentials, which have nothing to track).
+func setClientSecretHashAnnotation(cr *v1alpha1.ServiceEndpointAzureRM, secret string) {
+	if secret == "" {
+		return
+	}
+	meta.AddAnnotations(cr, map[string]string{annotationClientSecretHash: hashClientSecret(secret)})
 }
 
 func validateParameters(p v1alpha1.ServiceEndpointAzureRMParameters) error {
