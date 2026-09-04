@@ -274,10 +274,20 @@ jobs:
         # tag ref name like "v0.1.0" wouldn't otherwise match -- the actual
         # package VERSION is still derived correctly from the tag via
         # `git describe --tags`.
+        #
+        # XPKG_REG_ORGS is expanded here (rather than relying solely on the
+        # Makefile's default) to also push to Upbound's registry
+        # (xpkg.upbound.io/cd0486) when valid robot credentials are present
+        # -- see the "Login to Upbound" step above and RELEASING.md's
+        # "Upbound Marketplace" section (#43).
         run: |
+          XPKG_REG_ORGS="ghcr.io/dunkin0486"
+          if [[ -n "${UPBOUND_MARKETPLACE_PUSH_ROBOT_USR}" ]]; then
+            XPKG_REG_ORGS="${XPKG_REG_ORGS} xpkg.upbound.io/cd0486"
+          fi
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            make publish BRANCH_NAME=main
+            make publish BRANCH_NAME=main XPKG_REG_ORGS="${XPKG_REG_ORGS}"
           else
-            make publish BRANCH_NAME=${GITHUB_REF##*/}
+            make publish BRANCH_NAME=${GITHUB_REF##*/} XPKG_REG_ORGS="${XPKG_REG_ORGS}"
           fi
 

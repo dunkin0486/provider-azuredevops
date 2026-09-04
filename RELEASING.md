@@ -4,8 +4,10 @@
 an OCI image containing the provider's CRDs and (embedded) controller image.
 Crossplane packages aren't tied to any single registry: `spec.package` on a
 `Provider` object can point at any OCI-compatible registry. This repo
-publishes to **GitHub Container Registry (GHCR)**, `ghcr.io/dunkin0486`,
-configured via `XPKG_REG_ORGS` in the `Makefile`.
+publishes to both **GitHub Container Registry (GHCR)**, `ghcr.io/dunkin0486`,
+and **Upbound's registry**, `xpkg.upbound.io/cd0486` (see "Upbound
+Marketplace" below), configured via `XPKG_REG_ORGS` in the `Makefile` /
+`ci.yml`.
 
 ## What CI does automatically
 
@@ -20,10 +22,9 @@ configured via `XPKG_REG_ORGS` in the `Makefile`.
 
 Both cases log in to `ghcr.io` using the workflow's own `GITHUB_TOKEN` (via
 the `packages: write` permission on the job) -- no external account or
-secret setup is required for GHCR.
-
-Upbound registry (`xpkg.upbound.io`) publishing is **not enabled yet** --
-see "Upbound Marketplace" below and [#43].
+secret setup is required for GHCR. The same run also logs in to
+`xpkg.upbound.io` using the `UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/`_PSW`
+secrets and pushes there too (see "Upbound Marketplace" below).
 
 ## Cutting a release
 
@@ -74,9 +75,10 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Either way, CI builds and pushes
-`ghcr.io/dunkin0486/provider-azuredevops:v0.1.0` (multi-arch: `linux/amd64`,
-`linux/arm64`) once the tag lands.
+Either way, CI builds and pushes both
+`ghcr.io/dunkin0486/provider-azuredevops:v0.1.0` and
+`xpkg.upbound.io/cd0486/provider-azuredevops:v0.1.0` (multi-arch:
+`linux/amd64`, `linux/arm64`) once the tag lands.
 
 ### After any release
 
@@ -99,32 +101,53 @@ kind: Provider
 metadata:
   name: provider-azuredevops
 spec:
-  package: ghcr.io/dunkin0486/provider-azuredevops:v0.1.0
+  package: xpkg.upbound.io/cd0486/provider-azuredevops:v0.1.0
 ```
+
+`ghcr.io/dunkin0486/provider-azuredevops:v0.1.0` works identically -- both
+registries carry the same multi-arch image.
 
 or with Helm, at Crossplane install time:
 
 ```shell
 helm install crossplane crossplane-stable/crossplane \
   --namespace crossplane-system --create-namespace \
-  --set provider.packages='{ghcr.io/dunkin0486/provider-azuredevops:v0.1.0}'
+  --set provider.packages='{xpkg.upbound.io/cd0486/provider-azuredevops:v0.1.0}'
 ```
 
 ## Upbound Marketplace
 
-Publishing to `xpkg.upbound.io` (and eventual Marketplace listing) is
-**not set up yet** -- `ci.yml` has a conditional Upbound login/publish step
-gated on `UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/`_PSW` secrets, but no
-credentials are currently configured. A first attempt found that
-`docker login xpkg.upbound.io` requires a Robot account token (assigned to
-a Team with repository push permissions) rather than a personal
-account/PAT -- see [docs.upbound.io/manuals/platform/robots](https://docs.upbound.io/manuals/platform/robots/).
-Setting that up correctly, and separately confirming how Marketplace
-*listing* (discoverability) actually works, is tracked in [#43].
+Publishing to Upbound's registry (`xpkg.upbound.io/cd0486`) is **enabled**.
+Per [docs.upbound.io/manuals/platform/robots](https://docs.upbound.io/manuals/platform/robots/),
+`docker login xpkg.upbound.io` requires a **Robot account** token (not a
+personal account/PAT), assigned to a **Team** with push permission on the
+`provider-azuredevops` repository under the `cd0486` org. That's set up,
+and the robot's ID/token are stored as the `UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/
+`_PSW` GitHub Actions secrets on this repo -- `ci.yml`'s `publish-artifacts`
+job appends `xpkg.upbound.io/cd0486` to `XPKG_REG_ORGS` whenever those
+secrets are present (see the "Publish Artifacts" step), so both an
+unstable `main` build and every tagged release push to both GHCR and
+Upbound with no further manual steps.
 
-Once valid robot credentials are added as the `UPBOUND_MARKETPLACE_PUSH_ROBOT_USR`/`_PSW`
-secrets, no code changes are needed -- CI will start pushing to Upbound's
-registry automatically.
+### Marketplace listing (discoverability)
+
+Per [docs.upbound.io/manuals/marketplace/overview](https://docs.upbound.io/manuals/marketplace/overview/),
+"all extensions in the Marketplace are OCI images served from
+repositories" -- there's no separate build/package step beyond pushing a
+valid xpkg to a registry. However, whether a given repository is
+*browsable* in the Marketplace UI (as opposed to merely installable by an
+exact `spec.package` reference, which works today) may depend on the
+repository's visibility/listing setting in the Upbound console (Org
+settings -- Teams -- Permissions, or a per-repository setting under the
+`cd0486` org) rather than which registry hosts the image -- e.g.
+`ankasoftco/provider-cmdb` is listed in the Marketplace despite publishing
+solely via Docker Hub, not `xpkg.upbound.io`. This wasn't fully
+self-service-confirmable from the docs alone; check
+console.upbound.io -- org `cd0486` -- repository settings after the first
+push for a "list in Marketplace"/visibility toggle, or ask in the
+[Crossplane Slack](https://slack.crossplane.io) `#upbound` channel /
+Upbound support if no such toggle exists.
 
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
 [#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43
+
