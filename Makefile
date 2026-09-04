@@ -42,12 +42,13 @@ IMAGES = provider-azuredevops
 # so any docker-compatible registry works for `spec.package`. See
 # RELEASING.md. The upstream provider-template default
 # (xpkg.upbound.io/crossplane) is the org reserved for official
-# crossplane-contrib providers -- we can't push there. Upbound registry
-# push (xpkg.upbound.io/cd0486) is a documented future step once a working
-# robot-account token is set up -- see RELEASING.md's "Upbound Marketplace"
-# section; the ci.yml Upbound login/publish steps stay in place, gated on
-# the UPBOUND_MARKETPLACE_PUSH_ROBOT_USR/PSW secrets being present, so
-# adding valid credentials there is all that's needed to turn it back on.
+# crossplane-contrib providers -- we can't push there. This local default
+# only lists GHCR; ci.yml's "Publish Artifacts" step additionally appends
+# xpkg.upbound.io/cd0486 to XPKG_REG_ORGS when a valid Upbound robot-account
+# token is present (UPBOUND_MARKETPLACE_PUSH_ROBOT_USR/PSW secrets -- see
+# RELEASING.md's "Upbound Marketplace" section and #43), so local `make
+# publish` runs still only target GHCR unless you override XPKG_REG_ORGS
+# yourself.
 XPKG_REG_ORGS ?= ghcr.io/dunkin0486
 # NOTE(hasheddan): skip promoting on GHCR since CI never calls `make
 # promote` here.
