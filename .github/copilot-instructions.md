@@ -139,6 +139,20 @@ required checkbox in `.github/PULL_REQUEST_TEMPLATE.md`. That target:
 Requires Docker running locally. `make e2e.run` / `make test-integration`
 remain available as lower-level aliases for the same script.
 
+## Before opening a pull request
+
+Every PR (including ones opened by Copilot/an agent) must have, locally,
+before it is opened:
+1. **`make acceptance-tests` run and passing** for the branch's changes (see
+   above) — this is the same required checkbox enforced by
+   `.github/PULL_REQUEST_TEMPLATE.md`, and it should be done as part of
+   preparing the PR, not deferred until review time.
+2. **A code review pass on the diff** — use the `code-review` agent (or
+   equivalent) against the branch's changes before opening the PR, and fix
+   any high/medium-confidence findings it reports. CI (`lint`,
+   `check-diff`, `unit-tests`) validates mechanics but does not catch
+   logic bugs, so a dedicated review is required in addition to CI.
+
 ## PR merging policy
 
 A human must always review and approve a pull request before it is merged.
