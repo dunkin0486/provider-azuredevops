@@ -28,6 +28,10 @@ I have:
       verifies it becomes healthy) and confirmed it passes. This is **not**
       run in CI to conserve GitHub Actions minutes, so it must be verified
       locally before merge.
+- [ ] This PR's title follows [Conventional Commits](https://www.conventionalcommits.org/)
+      (e.g. `feat: ...`, `fix: ...`) -- PRs are squash-merged, so the title
+      becomes the `main` commit message that `release-please` inspects to
+      decide whether to cut a release (see `RELEASING.md`).
 - [ ] Added `backport release-x.y` labels to auto-backport this PR if necessary.
 
 ### How has this code been tested
