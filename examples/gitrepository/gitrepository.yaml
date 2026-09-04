@@ -1,0 +1,16 @@
+apiVersion: gitrepository.azuredevops.crossplane.io/v1alpha1
+kind: GitRepository
+metadata:
+  name: example-repository
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-repository
+    projectIdRef:
+      name: example-project
+    # defaultBranch can only be applied once the repository has at least one
+    # commit. On a brand-new, empty repository the provider defers setting
+    # it and retries automatically on later reconciles.
+    defaultBranch: refs/heads/main
