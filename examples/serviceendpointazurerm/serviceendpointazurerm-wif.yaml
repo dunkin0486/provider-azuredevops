@@ -1,0 +1,19 @@
+# Example using workload identity federation instead of a client secret.
+apiVersion: serviceendpointazurerm.azuredevops.crossplane.io/v1alpha1
+kind: ServiceEndpointAzureRM
+metadata:
+  name: example-serviceendpoint-azurerm-wif
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-azurerm-connection-wif
+    projectIdRef:
+      name: example-project
+    azureSubscriptionId: 00000000-0000-0000-0000-000000000000
+    azureSubscriptionName: Example Subscription
+    azureTenantId: 11111111-1111-1111-1111-111111111111
+    credentials:
+      workloadIdentityFederation:
+        clientId: 33333333-3333-3333-3333-333333333333
