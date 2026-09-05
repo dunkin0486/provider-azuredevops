@@ -152,6 +152,13 @@ before it is opened:
    any high/medium-confidence findings it reports. CI (`lint`,
    `check-diff`, `unit-tests`) validates mechanics but does not catch
    logic bugs, so a dedicated review is required in addition to CI.
+3. **A [Conventional Commits](https://www.conventionalcommits.org/) PR
+   title** — e.g. `feat: add GitRepository resource`, `fix: ...`,
+   `chore: ...`. This repo squash-merges PRs, and the PR title becomes the
+   `main` commit message that `release-please` (see `RELEASING.md`)
+   inspects to decide whether/how to cut a release. A PR title without a
+   `feat:`/`fix:`/etc. prefix means the merge is silently invisible to
+   `release-please` and no release is triggered.
 
 ## PR merging policy
 
