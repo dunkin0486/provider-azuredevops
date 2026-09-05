@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   create-tag:
@@ -27,3 +28,20 @@ jobs:
           version: ${{ github.event.inputs.version }}
           message: ${{ github.event.inputs.message }}
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # negz/create-tag creates the ref via the REST API using the default
+      # GITHUB_TOKEN, and GitHub deliberately excludes GITHUB_TOKEN-authored
+      # events from triggering other workflows (avoids infinite loops) -- so
+      # ci.yml's `tags: v*` push trigger never fires on its own here.
+      # Dispatch it explicitly, same as release-please.yml does for its
+      # automatic tags.
+      - name: Trigger provider release build
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci.yml',
+              ref: '${{ github.event.inputs.version }}',
+            })
