@@ -1,0 +1,19 @@
+apiVersion: builddefinition.azuredevops.crossplane.io/v1alpha1
+kind: BuildDefinition
+metadata:
+  name: example-builddefinition
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-pipeline
+    projectIdRef:
+      name: example-project
+    repositoryIdRef:
+      name: example-repository
+    yamlPath: azure-pipelines.yml
+    ciEnabled: true
+    prEnabled: true
+    variableGroupIdRefs:
+      - name: example-variablegroup

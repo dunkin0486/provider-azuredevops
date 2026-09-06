@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"reflect"
 
+	"github.com/crossplane/crossplane-runtime/v2/pkg/reference"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -124,4 +126,15 @@ var (
 
 func init() {
 	SchemeBuilder.Register(&Project{}, &ProjectList{})
+}
+
+// ProjectID extracts a referenced Project's observed Azure DevOps GUID.
+func ProjectID() reference.ExtractValueFn {
+	return func(mg resource.Managed) string {
+		r, ok := mg.(*Project)
+		if !ok {
+			return ""
+		}
+		return r.Status.AtProvider.ID
+	}
 }
