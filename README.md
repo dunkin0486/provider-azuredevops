@@ -1,5 +1,8 @@
 # provider-azuredevops
 
+[![CI](https://github.com/dunkin0486/provider-azuredevops/actions/workflows/ci.yml/badge.svg)](https://github.com/dunkin0486/provider-azuredevops/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/dunkin0486/provider-azuredevops/branch/main/graph/badge.svg)](https://codecov.io/gh/dunkin0486/provider-azuredevops)
+
 `provider-azuredevops` is a native [Crossplane](https://crossplane.io/)
 provider for managing [Azure DevOps](https://azure.microsoft.com/en-us/products/devops)
 resources — projects, repositories, pipelines, service connections, branch
