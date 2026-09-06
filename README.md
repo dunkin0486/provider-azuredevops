@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/dunkin0486/provider-azuredevops/actions/workflows/ci.yml/badge.svg)](https://github.com/dunkin0486/provider-azuredevops/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/dunkin0486/provider-azuredevops/branch/main/graph/badge.svg)](https://codecov.io/gh/dunkin0486/provider-azuredevops)
-[![Upbound Registry](https://img.shields.io/badge/xpkg.upbound.io-cd0486%2Fprovider--azuredevops-1849D6?logo=upbound&logoColor=white)](RELEASING.md#upbound-marketplace)
 
 `provider-azuredevops` is a native [Crossplane](https://crossplane.io/)
 provider for managing [Azure DevOps](https://azure.microsoft.com/en-us/products/devops)
@@ -18,20 +17,8 @@ priority.
 
 ## Installing
 
-The provider is published as a Crossplane package to Upbound's registry
-(`xpkg.upbound.io`) and GitHub Container Registry. Install a released
-version from Upbound with:
-
-```yaml
-apiVersion: pkg.crossplane.io/v1
-kind: Provider
-metadata:
-  name: provider-azuredevops
-spec:
-  package: xpkg.upbound.io/cd0486/provider-azuredevops:v0.1.0
-```
-
-Or, from GitHub Container Registry:
+The provider is published as a Crossplane package to GitHub Container
+Registry. Install a released version with:
 
 ```yaml
 apiVersion: pkg.crossplane.io/v1
