@@ -173,3 +173,14 @@ func ProjectID() reference.ExtractValueFn {
 		return r.Status.AtProvider.ID
 	}
 }
+
+// VariableGroupID extracts a referenced VariableGroup's observed Azure DevOps ID.
+func VariableGroupID() reference.ExtractValueFn {
+	return func(mg resource.Managed) string {
+		r, ok := mg.(*VariableGroup)
+		if !ok {
+			return ""
+		}
+		return r.Status.AtProvider.ID
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/v2/pkg/controller"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/builddefinition"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/config"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/gitrepository"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/project"
@@ -32,8 +33,9 @@ import (
 func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
 		config.Setup,
-		project.SetupGated,
+		builddefinition.SetupGated,
 		gitrepository.SetupGated,
+		project.SetupGated,
 		serviceendpointazurerm.SetupGated,
 		variablegroup.SetupGated,
 	} {
