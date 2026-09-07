@@ -149,28 +149,39 @@ Per the checklist in [#55], add the Marketplace badge to `README.md`
 ### Listing icon
 
 Per [docs.upbound.io/manuals/marketplace/packages](https://docs.upbound.io/manuals/marketplace/packages/#add-documentation-icons-and-other-assets-to-your-package),
-the Marketplace renders `meta.crossplane.io/iconURI` from `crossplane.yaml`
-as a fallback icon on the listing page. `package/crossplane.yaml` points
-this at `extensions/icons/icon.svg` (Azure DevOps' brand mark from the
-[Simple Icons](https://github.com/simple-icons/simple-icons) project,
-CC0 1.0 licensed) via its raw GitHub URL, so it renders without any
-further release step.
-
-For the icon to be embedded directly in a published package layer
-(rather than fetched externally from GitHub at render time), Upbound
-documents an additional, alpha `up` CLI step after pushing a version:
+the **only** Upbound-documented way to attach an icon (or release notes,
+readme, additional docs, SBOMs) to a Marketplace listing is to append it
+to an already-pushed package version with the alpha `up` CLI:
 
 ```shell
 up alpha xpkg append --extensions-root=./extensions \
   xpkg.upbound.io/cd0486/provider-azuredevops:<version>
 ```
 
-This isn't wired into CI yet (it's an alpha feature, requires installing
-the `up` CLI, and -- per other providers' experience -- can invalidate a
-package's cosign signature if run after signing, requiring an
-append-then-sign ordering). The `iconURI` fallback is sufficient for the
-icon to show on the Marketplace listing page today; wiring up
-`xpkg append` is a future enhancement, not required by #55.
+The `meta.crossplane.io/iconURI` annotation in `package/crossplane.yaml`
+(pointing at `extensions/icons/icon.svg`'s raw GitHub URL) is *not* a
+documented or confirmed-working Marketplace rendering mechanism -- it's a
+convention some community providers use as a fallback comment, but it did
+not make the icon appear on our listing (confirmed after v0.3.0). The
+`up alpha xpkg append` step above is what actually matters.
+
+This is wired into CI (`.github/workflows/ci.yml`, `publish-artifacts`
+job): after a tagged release is pushed to `xpkg.upbound.io/cd0486`, an
+"Install up CLI" step installs a pinned `up` version and an "Append
+Marketplace Extensions" step runs the command above against the release's
+`VERSION` (as computed by `make build.vars`). Both steps are gated on
+`UPBOUND_MARKETPLACE_PUSH_ROBOT_USR` being set and only run for `v*` tags
+(unstable main-channel builds don't need Marketplace extensions).
+
+This repo doesn't sign packages (no cosign step configured), so there's no
+append-vs-sign ordering concern here, unlike some other community
+providers.
+
+**Note:** the append step only affects *future* published versions -- it
+does not retroactively add the icon to versions already pushed before this
+was wired in (e.g. v0.1.0-v0.3.0). Those would need `up alpha xpkg append`
+run against them manually (requires Upbound registry credentials) if the
+icon is wanted on old versions too.
 
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
 [#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43
