@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/dunkin0486/provider-azuredevops/compare/v0.3.0...v0.3.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* embed Marketplace icon via up alpha xpkg append ([#80](https://github.com/dunkin0486/provider-azuredevops/issues/80)) ([4bad432](https://github.com/dunkin0486/provider-azuredevops/commit/4bad43226eb4b26ebbeb130be5441f9d640160f6)), closes [#55](https://github.com/dunkin0486/provider-azuredevops/issues/55)
+
 ## [0.3.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.2.0...v0.3.0) (2026-09-07)
 
 
