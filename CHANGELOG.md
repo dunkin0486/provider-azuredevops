@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.2.0...v0.3.0) (2026-09-07)
+
+
+### Features
+
+* add Marketplace logo and fix package metadata apiVersion ([#78](https://github.com/dunkin0486/provider-azuredevops/issues/78)) ([fc7bd3b](https://github.com/dunkin0486/provider-azuredevops/commit/fc7bd3bf5788324c98ad422e9c3693c5d65f72ef))
+
 ## [0.2.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.1.1...v0.2.0) (2026-09-07)
 
 
