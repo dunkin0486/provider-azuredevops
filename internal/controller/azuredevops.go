@@ -25,6 +25,7 @@ import (
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/gitrepository"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/project"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointazurerm"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/team"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/variablegroup"
 )
 
@@ -37,6 +38,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 		gitrepository.SetupGated,
 		project.SetupGated,
 		serviceendpointazurerm.SetupGated,
+		team.SetupGated,
 		variablegroup.SetupGated,
 	} {
 		if err := setup(mgr, o); err != nil {
