@@ -22,6 +22,7 @@ import (
 
 	builddefinitionv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/builddefinition/v1alpha1"
 	gitrepositoryv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/gitrepository/v1alpha1"
+	groupmembershipv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/groupmembership/v1alpha1"
 	projectv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1"
 	serviceendpointazurermv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointazurerm/v1alpha1"
 	teamv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/team/v1alpha1"
@@ -36,6 +37,7 @@ func init() {
 		builddefinitionv1alpha1.SchemeBuilder.AddToScheme,
 		projectv1alpha1.SchemeBuilder.AddToScheme,
 		gitrepositoryv1alpha1.SchemeBuilder.AddToScheme,
+		groupmembershipv1alpha1.SchemeBuilder.AddToScheme,
 		serviceendpointazurermv1alpha1.SchemeBuilder.AddToScheme,
 		teamv1alpha1.SchemeBuilder.AddToScheme,
 		variablegroupv1alpha1.SchemeBuilder.AddToScheme,
