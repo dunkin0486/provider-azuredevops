@@ -134,20 +134,19 @@ Upbound with no further manual steps.
 Per [docs.upbound.io/manuals/marketplace/overview](https://docs.upbound.io/manuals/marketplace/overview/),
 "all extensions in the Marketplace are OCI images served from
 repositories" -- there's no separate build/package step beyond pushing a
-valid xpkg to a registry. However, whether a given repository is
-*browsable* in the Marketplace UI (as opposed to merely installable by an
-exact `spec.package` reference, which works today) may depend on the
-repository's visibility/listing setting in the Upbound console (Org
-settings -- Teams -- Permissions, or a per-repository setting under the
-`cd0486` org) rather than which registry hosts the image -- e.g.
-`ankasoftco/provider-cmdb` is listed in the Marketplace despite publishing
-solely via Docker Hub, not `xpkg.upbound.io`. This wasn't fully
-self-service-confirmable from the docs alone; check
-console.upbound.io -- org `cd0486` -- repository settings after the first
-push for a "list in Marketplace"/visibility toggle, or ask in the
-[Crossplane Slack](https://slack.crossplane.io) `#upbound` channel /
-Upbound support if no such toggle exists.
+valid xpkg to a registry. Whether a given repository is *browsable* in
+the Marketplace UI (as opposed to merely installable by an exact
+`spec.package` reference, which works today) is controlled by a
+visibility/"list in Marketplace" toggle in the Upbound console under the
+`cd0486` org's repository settings (`console.upbound.io`) -- this isn't
+documented in the public docs, but was confirmed by inspecting the
+console directly. That toggle has been enabled for
+`provider-azuredevops`; the listing at
+`marketplace.upbound.io/providers/cd0486/provider-azuredevops` typically
+takes some time to appear/index after enabling. Once it's live, add the
+Marketplace badge to `README.md` per the checklist in [#55].
 
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
 [#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43
+[#55]: https://github.com/dunkin0486/provider-azuredevops/issues/55
 
