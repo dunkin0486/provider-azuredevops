@@ -1,6 +1,6 @@
 module github.com/dunkin0486/provider-azuredevops
 
-go 1.26.0
+go 1.26.8
 
 tool sigs.k8s.io/controller-tools/cmd/controller-gen
 
@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/microsoft/azure-devops-go-api/azuredevops/v7 v7.1.0
 	github.com/pkg/errors v0.9.1
-	google.golang.org/grpc v1.82.1
+	google.golang.org/grpc v1.83.2
 	k8s.io/api v0.37.0
 	k8s.io/apiextensions-apiserver v0.37.0
 	k8s.io/apimachinery v0.37.0
