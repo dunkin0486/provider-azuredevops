@@ -88,6 +88,15 @@ linters:
       - linters:
           - staticcheck
         text: 'SA3000:'
+      # controller-runtime v0.25 deprecated pkg/scheme.Builder (used in every
+      # generated GroupVersion registration) in favor of hand-rolling
+      # AddKnownTypes with apimachinery's runtime.SchemeBuilder. Tracked for a
+      # follow-up migration across all API packages and the addtype scaffold
+      # templates; suppress the noise in the meantime.
+      - linters:
+          - staticcheck
+        path: (groupversion_info|register)\.go$
+        text: 'SA1019:.*scheme\.Builder is deprecated'
       - linters:
           - gosec
         text: 'G101:'
