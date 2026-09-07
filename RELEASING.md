@@ -141,10 +141,36 @@ visibility/"list in Marketplace" toggle in the Upbound console under the
 `cd0486` org's repository settings (`console.upbound.io`) -- this isn't
 documented in the public docs, but was confirmed by inspecting the
 console directly. That toggle has been enabled for
-`provider-azuredevops`; the listing at
-`marketplace.upbound.io/providers/cd0486/provider-azuredevops` typically
-takes some time to appear/index after enabling. Once it's live, add the
-Marketplace badge to `README.md` per the checklist in [#55].
+`provider-azuredevops`, and the listing is **confirmed live** at
+[marketplace.upbound.io/providers/cd0486/provider-azuredevops](https://marketplace.upbound.io/providers/cd0486/provider-azuredevops).
+Per the checklist in [#55], add the Marketplace badge to `README.md`
+(not yet done as of this writing) and close #55.
+
+### Listing icon
+
+Per [docs.upbound.io/manuals/marketplace/packages](https://docs.upbound.io/manuals/marketplace/packages/#add-documentation-icons-and-other-assets-to-your-package),
+the Marketplace renders `meta.crossplane.io/iconURI` from `crossplane.yaml`
+as a fallback icon on the listing page. `package/crossplane.yaml` points
+this at `extensions/icons/icon.svg` (Azure DevOps' brand mark from the
+[Simple Icons](https://github.com/simple-icons/simple-icons) project,
+CC0 1.0 licensed) via its raw GitHub URL, so it renders without any
+further release step.
+
+For the icon to be embedded directly in a published package layer
+(rather than fetched externally from GitHub at render time), Upbound
+documents an additional, alpha `up` CLI step after pushing a version:
+
+```shell
+up alpha xpkg append --extensions-root=./extensions \
+  xpkg.upbound.io/cd0486/provider-azuredevops:<version>
+```
+
+This isn't wired into CI yet (it's an alpha feature, requires installing
+the `up` CLI, and -- per other providers' experience -- can invalidate a
+package's cosign signature if run after signing, requiring an
+append-then-sign ordering). The `iconURI` fallback is sufficient for the
+icon to show on the Marketplace listing page today; wiring up
+`xpkg append` is a future enhancement, not required by #55.
 
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
 [#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43

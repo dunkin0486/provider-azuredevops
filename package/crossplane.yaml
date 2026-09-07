@@ -1,4 +1,4 @@
-apiVersion: meta.pkg.crossplane.io/v1alpha1
+apiVersion: meta.pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-azuredevops
@@ -8,6 +8,12 @@ metadata:
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/description: |
       A Crossplane provider for managing Azure DevOps resources.
+    # Azure DevOps brand mark (Simple Icons project, CC0 1.0 -- see
+    # https://github.com/simple-icons/simple-icons/blob/develop/LICENSE.md).
+    # Package-local copy lives at extensions/icons/icon.svg; this iconURI is
+    # the Marketplace/GitHub fallback rendered until that's embedded into a
+    # published package layer via `up alpha xpkg append`.
+    meta.crossplane.io/iconURI: https://raw.githubusercontent.com/dunkin0486/provider-azuredevops/main/extensions/icons/icon.svg
 spec:
   capabilities:
     - safe-start
