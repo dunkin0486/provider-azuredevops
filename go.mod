@@ -1,6 +1,6 @@
 module github.com/dunkin0486/provider-azuredevops
 
-go 1.25.11
+go 1.26.8
 
 tool sigs.k8s.io/controller-tools/cmd/controller-gen
 
