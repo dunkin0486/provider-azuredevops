@@ -183,6 +183,41 @@ was wired in (e.g. v0.1.0-v0.3.0). Those would need `up alpha xpkg append`
 run against them manually (requires Upbound registry credentials) if the
 icon is wanted on old versions too.
 
+### "Schema" column in console.upbound.io
+
+Every version of this provider shows `Schema: Missing` on the
+`console.upbound.io/<org>/repositories/<repo>` Versions table. This is
+**not an indicator of invalid or missing CRD schemas** -- every published
+version has been independently verified (`docker pull` +
+`docker export` + inspecting `package.yaml`) to contain complete,
+valid `openAPIV3Schema` definitions for all CRDs.
+
+Inspecting the console's backing API
+(`api.upbound.io/v1/repositories/<org>/<repo>`, captured via a browser
+HAR export) shows the per-version JSON has **no field literally named
+"schema"** -- the closest candidate is a `languages` field, which is
+`null` for every version of this provider. This lines up with the `up`
+CLI's own documentation of "language schemas": IDE/editor binding files
+generated for a package's CRDs, populated by the newer `up project
+build`/`up project push` pipeline (see `up dependency add --api` in the
+[CLI reference][up-cli-ref]). This provider is built and published with
+the traditional `crossplane xpkg build`/`push` flow (via the `build/`
+submodule's Makefile machinery), which never populates that field --
+the same pipeline most non-`up project` Crossplane providers use.
+
+**Conclusion:** "Schema: Missing" is very likely a cosmetic label meaning
+"no `up project`-generated language bindings embedded," unrelated to CRD
+schema validity. Not currently considered worth chasing: migrating the
+whole build/release pipeline to `up project` is a large, uncertain-value
+change for a native Go provider (as opposed to a Terraform/upjet-based or
+composition-based package, where `up project`'s tooling is more clearly
+aimed), and no functional impact (installability, CRD availability, or
+Marketplace listing) has been observed. Revisit only if Upbound
+documents a lighter-weight way to populate `languages` without a full
+`up project` migration, or if this is confirmed to affect discoverability
+or installability.
+
+[up-cli-ref]: https://docs.upbound.io/reference/cli-reference/
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
 [#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43
 [#55]: https://github.com/dunkin0486/provider-azuredevops/issues/55
