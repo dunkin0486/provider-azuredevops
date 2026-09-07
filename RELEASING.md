@@ -143,8 +143,7 @@ documented in the public docs, but was confirmed by inspecting the
 console directly. That toggle has been enabled for
 `provider-azuredevops`, and the listing is **confirmed live** at
 [marketplace.upbound.io/providers/cd0486/provider-azuredevops](https://marketplace.upbound.io/providers/cd0486/provider-azuredevops).
-Per the checklist in [#55], add the Marketplace badge to `README.md`
-(not yet done as of this writing) and close #55.
+A Marketplace badge linking to that listing has been added to `README.md`.
 
 ### Listing icon
 
@@ -219,6 +218,4 @@ or installability.
 
 [up-cli-ref]: https://docs.upbound.io/reference/cli-reference/
 [xpkg-spec]: https://github.com/crossplane/crossplane/blob/main/contributing/specifications/xpkg.md
-[#43]: https://github.com/dunkin0486/provider-azuredevops/issues/43
-[#55]: https://github.com/dunkin0486/provider-azuredevops/issues/55
 
