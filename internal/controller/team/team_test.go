@@ -7,6 +7,7 @@ package team
 import (
 	"context"
 	stderrors "errors"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -252,6 +253,27 @@ func TestUpdate(t *testing.T) {
 
 		if _, err := e.Update(context.Background(), cr); err != nil {
 			t.Fatalf("e.Update(...): unexpected error: %v", err)
+		}
+	})
+
+	t.Run("ProjectIDCasingOnlyChange", func(t *testing.T) {
+		e := external{teams: &fake.TeamClient{
+			GetTeamFn: func(_ context.Context, _ core.GetTeamArgs) (*core.WebApiTeam, error) {
+				return webAPITeam(teamID, nil), nil
+			},
+			UpdateTeamFn: func(_ context.Context, _ core.UpdateTeamArgs) (*core.WebApiTeam, error) {
+				t.Fatal("UpdateTeam should not be called when only the project ID casing differs")
+				return nil, nil
+			},
+		}}
+
+		cr := teamWith(teamID.String(), func(cr *v1alpha1.Team) {
+			cr.Spec.ForProvider.ProjectID = strings.ToUpper(defaultProjectID)
+			cr.Spec.ForProvider.Description = teamDescription
+		})
+
+		if _, err := e.Update(context.Background(), cr); err != nil {
+			t.Fatalf("e.Update(...): unexpected error for casing-only project id difference: %v", err)
 		}
 	})
 

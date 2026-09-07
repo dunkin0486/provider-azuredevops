@@ -6,6 +6,7 @@ package team
 
 import (
 	"context"
+	"strings"
 
 	"github.com/microsoft/azure-devops-go-api/azuredevops/v7/core"
 
@@ -337,7 +338,7 @@ func isUpToDate(desired v1alpha1.TeamParameters, current *core.WebApiTeam) bool 
 		if current.ProjectId != nil {
 			currentProjectID = current.ProjectId.String()
 		}
-		if currentProjectID != desired.ProjectID {
+		if !strings.EqualFold(currentProjectID, desired.ProjectID) {
 			return false
 		}
 	}
@@ -358,7 +359,7 @@ func validateImmutableFields(desired v1alpha1.TeamParameters, current *core.WebA
 	if current.ProjectId != nil {
 		currentProjectID = current.ProjectId.String()
 	}
-	if desired.ProjectID != "" && currentProjectID != "" && desired.ProjectID != currentProjectID {
+	if desired.ProjectID != "" && currentProjectID != "" && !strings.EqualFold(desired.ProjectID, currentProjectID) {
 		return errors.Errorf("%s: desired %q, observed %q", errImmutableProject, desired.ProjectID, currentProjectID)
 	}
 
