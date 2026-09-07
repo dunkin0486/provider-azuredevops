@@ -1,0 +1,13 @@
+apiVersion: team.azuredevops.crossplane.io/v1alpha1
+kind: Team
+metadata:
+  name: example-team
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    name: Example Team
+    description: An example Azure DevOps team managed by Crossplane.
