@@ -291,3 +291,35 @@ jobs:
             make publish BRANCH_NAME=${GITHUB_REF##*/} XPKG_REG_ORGS="${XPKG_REG_ORGS}"
           fi
 
+      - name: Install up CLI
+        # Pinned version, from the official Upbound CDN (same trust model as
+        # the other curl-installed tools in this workflow). Only needed to
+        # attach Marketplace extensions (icon, etc.) below.
+        if: env.UPBOUND_MARKETPLACE_PUSH_ROBOT_USR != ''
+        env:
+          UP_VERSION: v0.51.0
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -fsSLo /usr/local/bin/up \
+            "https://cli.upbound.io/stable/${UP_VERSION}/bin/linux_amd64/up"
+          chmod +x /usr/local/bin/up
+          up version --client
+
+      - name: Append Marketplace Extensions
+        # `up alpha xpkg append` is currently the only way to attach a
+        # listing icon (and other supported extensions -- release notes,
+        # readme, docs) to a published package version; see
+        # RELEASING.md's "Listing icon" section and
+        # docs.upbound.io/manuals/marketplace/packages/#add-documentation-icons-and-other-assets-to-your-package.
+        # This repo doesn't sign packages (no cosign step), so there's no
+        # append-after-sign ordering concern here. Skipped for unstable
+        # main-channel builds since --extensions-root reads from the repo,
+        # which is fine for any VERSION -- but only bother for tagged
+        # releases users actually browse on the Marketplace.
+        if: env.UPBOUND_MARKETPLACE_PUSH_ROBOT_USR != '' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          VERSION="$(make build.vars | grep '^VERSION=' | cut -d= -f2)"
+          up alpha xpkg append --extensions-root=./extensions \
+            "xpkg.upbound.io/cd0486/provider-azuredevops:${VERSION}"
+
