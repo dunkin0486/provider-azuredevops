@@ -102,6 +102,47 @@ See the GitHub Project ["Azure DevOps Crossplane Provider Roadmap"](https://gith
 7. Run `make generate` to refresh deepcopy/CRD YAML, then `make lint` and
    `make test`.
 
+## Testing conventions
+
+Every resource controller (`project`, `gitrepository`,
+`serviceendpointazurerm`, `variablegroup`, `builddefinition`, `team`,
+`groupmembership`, `branchpolicyminreviewers`, ...) follows the same
+unit-testing pattern, adapted from `crossplane-contrib/provider-gitlab`'s
+`pkg/*/clients/<resource>/fake` convention:
+
+- **Client interface (`<resource>/client.go`):** define a small,
+  resource-scoped interface exposing only the SDK methods the controller
+  actually calls (e.g. `TeamClient` with `GetTeam`/`CreateTeam`/
+  `UpdateTeam`/`DeleteTeam`), plus a `new<Resource>Client` constructor that
+  builds the real SDK client (e.g. `core.NewClient`) from the
+  `*azuredevops.Connection` returned by
+  `internal/clients/azuredevops.GetConfig`/`Connection()`. Controllers must
+  depend on this interface, never the concrete SDK client type, so it can
+  be swapped for a fake in tests.
+- **Fakes (`<resource>/fake/fake.go`):** a hand-written struct implementing
+  the client interface with one exported `func` field per method (e.g.
+  `GetTeamFn func(ctx, args) (*core.WebApiTeam, error)`), so each test case
+  stubs only the methods it exercises. No mocking framework/codegen — this
+  keeps fakes trivial to read and matches `provider-gitlab`'s pattern. Put
+  fakes in their own `fake` subpackage per resource to avoid import cycles
+  with the controller package under test.
+- **Controller unit tests (`<resource>/<resource>_test.go`):** table-driven
+  tests over `Observe`/`Create`/`Update`/`Delete`, keyed by a `map[string]struct{
+  reason, fields, args, want }` of named cases (not just happy-path — include
+  not-found/404, already-up-to-date, and error-propagation cases). Use
+  `github.com/crossplane/crossplane-runtime/v2/pkg/test` helpers and
+  `github.com/google/go-cmp/cmp` for diffing expected vs. actual results.
+  Small helper functions (e.g. `teamWith(externalName, mutate)`,
+  `webAPITeam(id, mutate)`) that build a base managed resource / SDK
+  response and apply a mutator keep individual cases short.
+- **Coverage expectations:** align with the `unit-tests` CI job's Codecov
+  reporting (already wired, no hard threshold enforced) — new controllers
+  should cover all four `ExternalClient` methods with more than just the
+  success path, not just one operation.
+
+See `internal/controller/team/{client.go,fake/fake.go,team_test.go}` for a
+complete worked example of this pattern.
+
 ## Build & test commands
 
 - `make build` — compile the provider binary.
