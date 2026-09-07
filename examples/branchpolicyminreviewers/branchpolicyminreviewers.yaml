@@ -1,0 +1,20 @@
+apiVersion: branchpolicyminreviewers.azuredevops.crossplane.io/v1alpha1
+kind: BranchPolicyMinReviewers
+metadata:
+  name: example-min-reviewers
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    repositoryIdRef:
+      name: example-repository
+    branch: refs/heads/main
+    minimumApproverCount: 2
+    creatorVoteCounts: false
+    allowCompletionWithRejects: false
+    resetOnSourcePush: true
+    enabled: true
+    blocking: true
