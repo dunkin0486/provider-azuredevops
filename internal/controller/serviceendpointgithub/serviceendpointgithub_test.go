@@ -501,3 +501,179 @@ func TestSecretRedaction(t *testing.T) {
 func strPtr(s string) *string         { return &s }
 func boolPtr(b bool) *bool            { return &b }
 func uuidPtr(id uuid.UUID) *uuid.UUID { return &id }
+
+func TestDesiredAuthorizationScheme(t *testing.T) {
+	cases := map[string]struct {
+		in      string
+		want    string
+		wantErr string
+	}{
+		"Empty":        {in: "", want: serviceEndpointAuthorizationPAT},
+		"PAT":          {in: serviceEndpointAuthorizationPAT, want: serviceEndpointAuthorizationPAT},
+		"OAuth":        {in: serviceEndpointAuthorizationOAuth, want: serviceEndpointAuthorizationOAuth},
+		"InstallToken": {in: serviceEndpointAuthorizationInstallTok, want: serviceEndpointAuthorizationInstallTok},
+		"Invalid":      {in: "bogus", wantErr: errInvalidAuthScheme},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := desiredAuthorizationScheme(tc.in)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("desiredAuthorizationScheme(%q): unexpected error: %v", tc.in, err)
+				}
+				if got != tc.want {
+					t.Fatalf("desiredAuthorizationScheme(%q) = %q, want %q", tc.in, got, tc.want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("desiredAuthorizationScheme(%q): error = %v, want error containing %q", tc.in, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateParameters(t *testing.T) {
+	valid := func() v1alpha1.ServiceEndpointGitHubParameters {
+		return serviceEndpointCR("", nil).Spec.ForProvider
+	}
+
+	cases := map[string]struct {
+		mutate  func(p *v1alpha1.ServiceEndpointGitHubParameters)
+		wantErr string
+	}{
+		"Valid": {mutate: func(_ *v1alpha1.ServiceEndpointGitHubParameters) {}},
+		"MissingName": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGitHubParameters) { p.Name = "" },
+			wantErr: errMissingName,
+		},
+		"MissingProjectID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGitHubParameters) { p.ProjectID = "" },
+			wantErr: errMissingProjectID,
+		},
+		"InvalidAuthScheme": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGitHubParameters) { p.AuthScheme = "bogus" },
+			wantErr: errInvalidAuthScheme,
+		},
+		"MissingTokenSecretRefForPAT": {
+			mutate: func(p *v1alpha1.ServiceEndpointGitHubParameters) {
+				p.AuthScheme = serviceEndpointAuthorizationPAT
+				p.TokenSecretRef = nil
+			},
+			wantErr: errMissingTokenSecretRef,
+		},
+		"MissingTokenSecretRefForInstallToken": {
+			mutate: func(p *v1alpha1.ServiceEndpointGitHubParameters) {
+				p.AuthScheme = serviceEndpointAuthorizationInstallTok
+				p.TokenSecretRef = nil
+			},
+			wantErr: errMissingTokenSecretRef,
+		},
+		"OAuthDoesNotRequireTokenSecretRef": {
+			mutate: func(p *v1alpha1.ServiceEndpointGitHubParameters) {
+				p.AuthScheme = serviceEndpointAuthorizationOAuth
+				p.TokenSecretRef = nil
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := valid()
+			tc.mutate(&p)
+			err := validateParameters(p)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateParameters(...): unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateParameters(...): error = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsUpToDate(t *testing.T) {
+	id := uuid.New()
+
+	cases := map[string]struct {
+		params   v1alpha1.ServiceEndpointGitHubParameters
+		endpoint *adoserviceendpoint.ServiceEndpoint
+		want     bool
+	}{
+		"NilEndpoint": {
+			params:   serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: nil,
+			want:     false,
+		},
+		"UpToDate": {
+			params:   serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationPAT),
+			want:     true,
+		},
+		"NameMismatch": {
+			params: serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, serviceEndpointAuthorizationPAT)
+				name := "different"
+				e.Name = &name
+				return e
+			}(),
+			want: false,
+		},
+		"TypeMismatch": {
+			params: serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, serviceEndpointAuthorizationPAT)
+				typ := "other"
+				e.Type = &typ
+				return e
+			}(),
+			want: false,
+		},
+		"URLMismatch": {
+			params: serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, serviceEndpointAuthorizationPAT)
+				url := "https://different.example.com"
+				e.Url = &url
+				return e
+			}(),
+			want: false,
+		},
+		"NilAuthorization": {
+			params: serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, serviceEndpointAuthorizationPAT)
+				e.Authorization = nil
+				return e
+			}(),
+			want: false,
+		},
+		"SchemeMismatch": {
+			params:   serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationOAuth),
+			want:     false,
+		},
+		"InvalidDesiredScheme": {
+			params: func() v1alpha1.ServiceEndpointGitHubParameters {
+				p := serviceEndpointCR("", nil).Spec.ForProvider
+				p.AuthScheme = "bogus"
+				return p
+			}(),
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationPAT),
+			want:     false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := isUpToDate(tc.params, tc.endpoint); got != tc.want {
+				t.Fatalf("isUpToDate(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

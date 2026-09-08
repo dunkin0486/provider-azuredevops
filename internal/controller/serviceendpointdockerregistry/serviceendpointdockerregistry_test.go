@@ -482,3 +482,154 @@ func TestSecretRedaction(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool    { return &b }
+
+func TestValidateParameters(t *testing.T) {
+	valid := func() v1alpha1.ServiceEndpointDockerRegistryParameters {
+		return serviceEndpointCR("", nil).Spec.ForProvider
+	}
+
+	cases := map[string]struct {
+		mutate  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters)
+		wantErr string
+	}{
+		"Valid": {mutate: func(_ *v1alpha1.ServiceEndpointDockerRegistryParameters) {}},
+		"MissingName": {
+			mutate:  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.Name = "" },
+			wantErr: errMissingName,
+		},
+		"MissingProjectID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.ProjectID = "" },
+			wantErr: errMissingProjectID,
+		},
+		"MissingRegistryURL": {
+			mutate:  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.RegistryURL = "" },
+			wantErr: errMissingRegistryURL,
+		},
+		"InvalidRegistryType": {
+			mutate:  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.RegistryType = "invalid" },
+			wantErr: errInvalidRegistryType,
+		},
+		"DefaultRegistryTypeIsDockerHub": {
+			mutate: func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.RegistryType = "" },
+		},
+		"MissingUsernameSecretRef": {
+			mutate:  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.UsernameSecretRef = nil },
+			wantErr: errMissingUsernameSecretRef,
+		},
+		"MissingPasswordSecretRef": {
+			mutate:  func(p *v1alpha1.ServiceEndpointDockerRegistryParameters) { p.PasswordSecretRef = nil },
+			wantErr: errMissingPasswordSecretRef,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := valid()
+			tc.mutate(&p)
+			err := validateParameters(p)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateParameters(...): unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateParameters(...): error = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsUpToDate(t *testing.T) {
+	base := func() v1alpha1.ServiceEndpointDockerRegistryParameters {
+		return serviceEndpointCR("", nil).Spec.ForProvider
+	}
+	id := uuid.New()
+
+	cases := map[string]struct {
+		params   v1alpha1.ServiceEndpointDockerRegistryParameters
+		endpoint *adoserviceendpoint.ServiceEndpoint
+		want     bool
+	}{
+		"NilEndpoint": {
+			params:   base(),
+			endpoint: nil,
+			want:     false,
+		},
+		"InvalidRegistryType": {
+			params: func() v1alpha1.ServiceEndpointDockerRegistryParameters {
+				p := base()
+				p.RegistryType = "invalid"
+				return p
+			}(),
+			endpoint: endpointWith(id, true, registryTypeOthers, base().RegistryURL),
+			want:     false,
+		},
+		"UpToDate": {
+			params:   base(),
+			endpoint: endpointWith(id, true, registryTypeOthers, base().RegistryURL),
+			want:     true,
+		},
+		"NameMismatch": {
+			params: base(),
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, registryTypeOthers, base().RegistryURL)
+				name := "different"
+				e.Name = &name
+				return e
+			}(),
+			want: false,
+		},
+		"SchemeMismatch": {
+			params: base(),
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, registryTypeOthers, base().RegistryURL)
+				scheme := "Different"
+				e.Authorization.Scheme = &scheme
+				return e
+			}(),
+			want: false,
+		},
+		"RegistryDataMismatch": {
+			params:   base(),
+			endpoint: endpointWith(id, true, registryTypeDockerHub, base().RegistryURL),
+			want:     false,
+		},
+		"RegistryURLMismatch": {
+			params:   base(),
+			endpoint: endpointWith(id, true, registryTypeOthers, "https://different.example.com/"),
+			want:     false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := isUpToDate(tc.params, tc.endpoint); got != tc.want {
+				t.Fatalf("isUpToDate(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestObservedRegistryType(t *testing.T) {
+	cases := map[string]struct {
+		in   string
+		want string
+	}{
+		"Empty":          {in: "", want: registryTypeOthers},
+		"Others":         {in: registryTypeOthers, want: registryTypeOthers},
+		"OthersLower":    {in: "others", want: registryTypeOthers},
+		"DockerHub":      {in: registryTypeDockerHub, want: registryTypeDockerHub},
+		"DockerHubCase":  {in: "dockerhub", want: registryTypeDockerHub},
+		"DockerRegistry": {in: "Docker Registry", want: registryTypeOthers},
+		"Unknown":        {in: "SomethingElse", want: "SomethingElse"},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := observedRegistryType(tc.in); got != tc.want {
+				t.Fatalf("observedRegistryType(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

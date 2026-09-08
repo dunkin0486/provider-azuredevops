@@ -424,3 +424,131 @@ func TestDelete(t *testing.T) {
 		})
 	}
 }
+
+func TestIsUpToDate(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	base := func() v1alpha1.AgentPoolParameters {
+		return v1alpha1.AgentPoolParameters{
+			Name:          "example-pool",
+			IsHosted:      &falseVal,
+			AutoProvision: &trueVal,
+			AutoUpdate:    &falseVal,
+		}
+	}
+	current := func() *taskagent.TaskAgentPool {
+		return &taskagent.TaskAgentPool{
+			Name:          stringPtr("example-pool"),
+			IsHosted:      &falseVal,
+			AutoProvision: &trueVal,
+			AutoUpdate:    &falseVal,
+		}
+	}
+
+	cases := map[string]struct {
+		desired v1alpha1.AgentPoolParameters
+		current *taskagent.TaskAgentPool
+		want    bool
+	}{
+		"NilCurrent": {desired: base(), current: nil, want: false},
+		"UpToDate":   {desired: base(), current: current(), want: true},
+		"NameMismatch": {
+			desired: base(),
+			current: func() *taskagent.TaskAgentPool {
+				c := current()
+				c.Name = stringPtr("different")
+				return c
+			}(),
+			want: false,
+		},
+		"IsHostedMismatch": {
+			desired: base(),
+			current: func() *taskagent.TaskAgentPool {
+				c := current()
+				c.IsHosted = &trueVal
+				return c
+			}(),
+			want: false,
+		},
+		"AutoProvisionMismatch": {
+			desired: base(),
+			current: func() *taskagent.TaskAgentPool {
+				c := current()
+				c.AutoProvision = &falseVal
+				return c
+			}(),
+			want: false,
+		},
+		"AutoUpdateMismatch": {
+			desired: base(),
+			current: func() *taskagent.TaskAgentPool {
+				c := current()
+				c.AutoUpdate = &trueVal
+				return c
+			}(),
+			want: false,
+		},
+		"NilDesiredOptionalFieldsIgnored": {
+			desired: v1alpha1.AgentPoolParameters{Name: "example-pool"},
+			current: current(),
+			want:    true,
+		},
+		"NilCurrentOptionalFields": {
+			desired: base(),
+			current: &taskagent.TaskAgentPool{
+				Name: stringPtr("example-pool"),
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := isUpToDate(tc.desired, tc.current); got != tc.want {
+				t.Fatalf("isUpToDate(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDesiredIsHosted(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	cases := map[string]struct {
+		p    v1alpha1.AgentPoolParameters
+		want bool
+	}{
+		"Nil":   {p: v1alpha1.AgentPoolParameters{IsHosted: nil}, want: false},
+		"True":  {p: v1alpha1.AgentPoolParameters{IsHosted: &trueVal}, want: true},
+		"False": {p: v1alpha1.AgentPoolParameters{IsHosted: &falseVal}, want: false},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := desiredIsHosted(tc.p); got != tc.want {
+				t.Fatalf("desiredIsHosted(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValueOrEmpty(t *testing.T) {
+	if got := valueOrEmpty(nil); got != "" {
+		t.Fatalf("valueOrEmpty(nil) = %q, want empty", got)
+	}
+	if got := valueOrEmpty(stringPtr("value")); got != "value" {
+		t.Fatalf("valueOrEmpty(...) = %q, want %q", got, "value")
+	}
+}
+
+func TestValueOrFalse(t *testing.T) {
+	trueVal := true
+	if got := valueOrFalse(nil); got != false {
+		t.Fatalf("valueOrFalse(nil) = %v, want false", got)
+	}
+	if got := valueOrFalse(&trueVal); got != true {
+		t.Fatalf("valueOrFalse(...) = %v, want true", got)
+	}
+}

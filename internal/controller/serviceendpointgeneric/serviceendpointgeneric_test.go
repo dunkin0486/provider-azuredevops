@@ -33,6 +33,8 @@ import (
 
 const defaultNamespace = "default"
 
+const testUsername = "user"
+
 const (
 	testSecretName = "generic-creds"
 	testSecretKey  = "password"
@@ -516,3 +518,219 @@ func TestSecretRedaction(t *testing.T) {
 func strPtr(s string) *string         { return &s }
 func boolPtr(b bool) *bool            { return &b }
 func uuidPtr(id uuid.UUID) *uuid.UUID { return &id }
+
+func TestValidateParameters(t *testing.T) {
+	valid := func() v1alpha1.ServiceEndpointGenericParameters {
+		p := serviceEndpointCR("", nil).Spec.ForProvider
+		p.AuthorizationScheme = serviceEndpointAuthorizationUsernamePassword
+		p.Username = testUsername
+		p.PasswordSecretRef = passwordSecretRef()
+		return p
+	}
+
+	cases := map[string]struct {
+		mutate  func(p *v1alpha1.ServiceEndpointGenericParameters)
+		wantErr string
+	}{
+		"Valid": {mutate: func(_ *v1alpha1.ServiceEndpointGenericParameters) {}},
+		"MissingName": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGenericParameters) { p.Name = "" },
+			wantErr: errMissingName,
+		},
+		"MissingProjectID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGenericParameters) { p.ProjectID = "" },
+			wantErr: errMissingProjectID,
+		},
+		"MissingServerURL": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGenericParameters) { p.ServerURL = "" },
+			wantErr: errMissingServerURL,
+		},
+		"MissingAuthorizationScheme": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGenericParameters) { p.AuthorizationScheme = "" },
+			wantErr: errMissingAuthorizationScheme,
+		},
+		"InvalidAuthorizationScheme": {
+			mutate:  func(p *v1alpha1.ServiceEndpointGenericParameters) { p.AuthorizationScheme = "invalid" },
+			wantErr: errInvalidAuthorizationScheme,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := valid()
+			tc.mutate(&p)
+			err := validateParameters(p)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateParameters(...): unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateParameters(...): error = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestDesiredAuthorizationScheme(t *testing.T) {
+	cases := map[string]struct {
+		params     v1alpha1.ServiceEndpointGenericParameters
+		wantScheme string
+		wantErr    string
+	}{
+		"UsernamePasswordValid": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationUsernamePassword,
+				PasswordSecretRef:   passwordSecretRef(),
+			},
+			wantScheme: serviceEndpointAuthorizationUsernamePassword,
+		},
+		"UsernamePasswordMissingPassword": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationUsernamePassword,
+			},
+			wantErr: errMissingPasswordSecretRef,
+		},
+		"TokenValid": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationToken,
+				PasswordSecretRef:   passwordSecretRef(),
+			},
+			wantScheme: serviceEndpointAuthorizationToken,
+		},
+		"TokenWithUsername": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationToken,
+				Username:            testUsername,
+				PasswordSecretRef:   passwordSecretRef(),
+			},
+			wantErr: errUsernameOnlyForUsernamePassword,
+		},
+		"TokenMissingPassword": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationToken,
+			},
+			wantErr: errMissingPasswordSecretRef,
+		},
+		"NoneValid": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationNone,
+			},
+			wantScheme: serviceEndpointAuthorizationNone,
+		},
+		"NoneWithUsername": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationNone,
+				Username:            testUsername,
+			},
+			wantErr: errUsernameOnlyForUsernamePassword,
+		},
+		"NoneWithPasswordSecretRef": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: serviceEndpointAuthorizationNone,
+				PasswordSecretRef:   passwordSecretRef(),
+			},
+			wantErr: errPasswordSecretRefNotAllowed,
+		},
+		"Invalid": {
+			params: v1alpha1.ServiceEndpointGenericParameters{
+				AuthorizationScheme: "bogus",
+			},
+			wantErr: errInvalidAuthorizationScheme,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme, err := desiredAuthorizationScheme(tc.params)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("desiredAuthorizationScheme(...): unexpected error: %v", err)
+				}
+				if scheme != tc.wantScheme {
+					t.Fatalf("desiredAuthorizationScheme(...) = %q, want %q", scheme, tc.wantScheme)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("desiredAuthorizationScheme(...): error = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsUpToDate(t *testing.T) {
+	id := uuid.New()
+
+	cases := map[string]struct {
+		params   v1alpha1.ServiceEndpointGenericParameters
+		endpoint *adoserviceendpoint.ServiceEndpoint
+		want     bool
+	}{
+		"NilEndpoint": {
+			params:   serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: nil,
+			want:     false,
+		},
+		"InvalidScheme": {
+			params: func() v1alpha1.ServiceEndpointGenericParameters {
+				p := serviceEndpointCR("", nil).Spec.ForProvider
+				p.AuthorizationScheme = "bogus"
+				return p
+			}(),
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationNone, "https://api.example.com", map[string]string{}),
+			want:     false,
+		},
+		"UpToDateNone": {
+			params:   serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationNone, "https://api.example.com", map[string]string{}),
+			want:     true,
+		},
+		"NameMismatch": {
+			params: serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: func() *adoserviceendpoint.ServiceEndpoint {
+				e := endpointWith(id, true, serviceEndpointAuthorizationNone, "https://api.example.com", map[string]string{})
+				name := "different"
+				e.Name = &name
+				return e
+			}(),
+			want: false,
+		},
+		"SchemeMismatch": {
+			params:   serviceEndpointCR("", nil).Spec.ForProvider,
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationUsernamePassword, "https://api.example.com", map[string]string{}),
+			want:     false,
+		},
+		"UsernamePasswordUpToDate": {
+			params: func() v1alpha1.ServiceEndpointGenericParameters {
+				p := serviceEndpointCR("", nil).Spec.ForProvider
+				p.AuthorizationScheme = serviceEndpointAuthorizationUsernamePassword
+				p.Username = testUsername
+				p.PasswordSecretRef = passwordSecretRef()
+				return p
+			}(),
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationUsernamePassword, "https://api.example.com", map[string]string{authParamUsername: testUsername}),
+			want:     true,
+		},
+		"UsernamePasswordMismatch": {
+			params: func() v1alpha1.ServiceEndpointGenericParameters {
+				p := serviceEndpointCR("", nil).Spec.ForProvider
+				p.AuthorizationScheme = serviceEndpointAuthorizationUsernamePassword
+				p.Username = testUsername
+				p.PasswordSecretRef = passwordSecretRef()
+				return p
+			}(),
+			endpoint: endpointWith(id, true, serviceEndpointAuthorizationUsernamePassword, "https://api.example.com", map[string]string{authParamUsername: "different"}),
+			want:     false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := isUpToDate(tc.params, tc.endpoint); got != tc.want {
+				t.Fatalf("isUpToDate(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

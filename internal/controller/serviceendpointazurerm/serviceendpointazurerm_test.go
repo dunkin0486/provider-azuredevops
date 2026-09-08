@@ -467,3 +467,59 @@ func cloneMap(in map[string]string) map[string]string {
 func strPtr(s string) *string         { return &s }
 func boolPtr(b bool) *bool            { return &b }
 func uuidPtr(id uuid.UUID) *uuid.UUID { return &id }
+
+func TestValidateParameters(t *testing.T) {
+	valid := func() v1alpha1.ServiceEndpointAzureRMParameters {
+		return serviceEndpointCR("", nil).Spec.ForProvider
+	}
+
+	cases := map[string]struct {
+		mutate  func(p *v1alpha1.ServiceEndpointAzureRMParameters)
+		wantErr string
+	}{
+		"Valid": {mutate: func(_ *v1alpha1.ServiceEndpointAzureRMParameters) {}},
+		"MissingName": {
+			mutate:  func(p *v1alpha1.ServiceEndpointAzureRMParameters) { p.Name = "" },
+			wantErr: errMissingName,
+		},
+		"MissingProjectID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointAzureRMParameters) { p.ProjectID = "" },
+			wantErr: errMissingProjectID,
+		},
+		"MissingSubscriptionID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointAzureRMParameters) { p.AzureSubscriptionID = "" },
+			wantErr: errMissingSubscriptionID,
+		},
+		"MissingSubscriptionName": {
+			mutate:  func(p *v1alpha1.ServiceEndpointAzureRMParameters) { p.AzureSubscriptionName = "" },
+			wantErr: errMissingSubscriptionName,
+		},
+		"MissingTenantID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointAzureRMParameters) { p.AzureTenantID = "" },
+			wantErr: errMissingTenantID,
+		},
+		"InvalidCredentials": {
+			mutate: func(p *v1alpha1.ServiceEndpointAzureRMParameters) {
+				p.Credentials = v1alpha1.ServiceEndpointAzureRMCredentials{}
+			},
+			wantErr: errInvalidCredentials,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := valid()
+			tc.mutate(&p)
+			err := validateParameters(p)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateParameters(...): unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateParameters(...): error = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
