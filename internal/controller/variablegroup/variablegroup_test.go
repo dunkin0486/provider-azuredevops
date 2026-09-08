@@ -6,6 +6,7 @@ package variablegroup
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -35,6 +36,7 @@ const (
 	testSecretVarName = "secret"
 	testNamespace     = "default"
 	testSecretDataKey = "value"
+	testVaultName     = "vault-name"
 )
 
 func variableGroupCRWith(name string, mutate func(*v1alpha1.VariableGroup)) *v1alpha1.VariableGroup {
@@ -393,7 +395,7 @@ func TestIsUpToDateKeyVault(t *testing.T) {
 	upToDate, err := isUpToDate(v1alpha1.VariableGroupParameters{
 		ProjectID: projectID.String(),
 		Name:      "kv-group",
-		KeyVault:  &v1alpha1.KeyVaultReference{Name: "vault-name", ServiceEndpointID: serviceEndpointID.String()},
+		KeyVault:  &v1alpha1.KeyVaultReference{Name: testVaultName, ServiceEndpointID: serviceEndpointID.String()},
 	}, &taskagent.VariableGroup{
 		Name: strPtr("kv-group"),
 		Type: strPtr(variableGroupTypeAzureKeyVault),
@@ -401,7 +403,7 @@ func TestIsUpToDateKeyVault(t *testing.T) {
 			ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(projectID)},
 		}},
 		ProviderData: map[string]interface{}{
-			"vault":             "vault-name",
+			"vault":             testVaultName,
 			"serviceEndpointId": serviceEndpointID.String(),
 		},
 	})
@@ -421,6 +423,484 @@ func TestObservationDoesNotLeakSecrets(t *testing.T) {
 	}
 }
 
+func TestUpdateNoObservedID(t *testing.T) {
+	cr := variableGroupCRWith("", nil)
+	e := external{variablegroups: &fakevg.VariableGroupClient{UpdateVariableGroupFn: func(_ context.Context, _ taskagent.UpdateVariableGroupArgs) (*taskagent.VariableGroup, error) {
+		t.Fatal("UpdateVariableGroup should not be called when no variable group id has been observed")
+		return nil, nil
+	}}}
+
+	if _, err := e.Update(context.Background(), cr); err == nil {
+		t.Fatal("Update(...): expected error when no variable group id has been observed, got nil")
+	}
+}
+
+func TestUpdateBuildParametersError(t *testing.T) {
+	cr := variableGroupCRWith("42", func(cr *v1alpha1.VariableGroup) {
+		// ProjectID left empty: validateParameters must fail.
+		cr.Spec.ForProvider.Name = testExampleName
+	})
+
+	e := external{variablegroups: &fakevg.VariableGroupClient{UpdateVariableGroupFn: func(_ context.Context, _ taskagent.UpdateVariableGroupArgs) (*taskagent.VariableGroup, error) {
+		t.Fatal("UpdateVariableGroup should not be called when the payload cannot be built")
+		return nil, nil
+	}}}
+
+	if _, err := e.Update(context.Background(), cr); err == nil {
+		t.Fatal("Update(...): expected error when buildVariableGroupParameters fails, got nil")
+	}
+}
+
+func TestUpdateAPIError(t *testing.T) {
+	projectID := uuid.New()
+	cr := variableGroupCRWith("42", func(cr *v1alpha1.VariableGroup) {
+		cr.Spec.ForProvider.ProjectID = projectID.String()
+		cr.Spec.ForProvider.Name = testExampleName
+	})
+
+	e := external{variablegroups: &fakevg.VariableGroupClient{UpdateVariableGroupFn: func(_ context.Context, _ taskagent.UpdateVariableGroupArgs) (*taskagent.VariableGroup, error) {
+		return nil, errBoom
+	}}}
+
+	if _, err := e.Update(context.Background(), cr); err == nil {
+		t.Fatal("Update(...): expected error when UpdateVariableGroup fails, got nil")
+	}
+}
+
+func TestDeleteNoObservedID(t *testing.T) {
+	cr := variableGroupCRWith("", nil)
+	e := external{variablegroups: &fakevg.VariableGroupClient{DeleteVariableGroupFn: func(_ context.Context, _ taskagent.DeleteVariableGroupArgs) error {
+		t.Fatal("DeleteVariableGroup should not be called when no variable group id has been observed")
+		return nil
+	}}}
+
+	if _, err := e.Delete(context.Background(), cr); err != nil {
+		t.Fatalf("Delete(...): unexpected error: %v", err)
+	}
+}
+
+func TestDeleteMissingProjectID(t *testing.T) {
+	cr := variableGroupCRWith("55", nil)
+	e := external{variablegroups: &fakevg.VariableGroupClient{DeleteVariableGroupFn: func(_ context.Context, _ taskagent.DeleteVariableGroupArgs) error {
+		t.Fatal("DeleteVariableGroup should not be called when projectId is empty")
+		return nil
+	}}}
+
+	if _, err := e.Delete(context.Background(), cr); err == nil {
+		t.Fatal("Delete(...): expected error when projectId is empty, got nil")
+	}
+}
+
+func TestDeleteNotFound(t *testing.T) {
+	projectID := uuid.New()
+	cr := variableGroupCRWith("55", func(cr *v1alpha1.VariableGroup) {
+		cr.Spec.ForProvider.ProjectID = projectID.String()
+	})
+
+	e := external{variablegroups: &fakevg.VariableGroupClient{DeleteVariableGroupFn: func(_ context.Context, _ taskagent.DeleteVariableGroupArgs) error {
+		return variableGroupNotFoundErr()
+	}}}
+
+	if _, err := e.Delete(context.Background(), cr); err != nil {
+		t.Fatalf("Delete(...): unexpected error for a not-found variable group: %v", err)
+	}
+}
+
+func TestDeleteAPIError(t *testing.T) {
+	projectID := uuid.New()
+	cr := variableGroupCRWith("55", func(cr *v1alpha1.VariableGroup) {
+		cr.Spec.ForProvider.ProjectID = projectID.String()
+	})
+
+	e := external{variablegroups: &fakevg.VariableGroupClient{DeleteVariableGroupFn: func(_ context.Context, _ taskagent.DeleteVariableGroupArgs) error {
+		return errBoom
+	}}}
+
+	if _, err := e.Delete(context.Background(), cr); err == nil {
+		t.Fatal("Delete(...): expected error when DeleteVariableGroup fails, got nil")
+	}
+}
+
+func TestBuildVariableGroupParametersKeyVault(t *testing.T) {
+	projectID := uuid.New()
+	serviceEndpointID := uuid.New()
+
+	t.Run("Valid", func(t *testing.T) {
+		p := v1alpha1.VariableGroupParameters{
+			ProjectID: projectID.String(),
+			Name:      testExampleName,
+			KeyVault:  &v1alpha1.KeyVaultReference{Name: testVaultName, ServiceEndpointID: serviceEndpointID.String()},
+		}
+		e := external{}
+		payload, err := e.buildVariableGroupParameters(context.Background(), variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) { cr.Spec.ForProvider = p }))
+		if err != nil {
+			t.Fatalf("buildVariableGroupParameters(...): unexpected error: %v", err)
+		}
+		if payload.Type == nil || *payload.Type != variableGroupTypeAzureKeyVault {
+			t.Fatalf("buildVariableGroupParameters(...): type = %v, want %s", payload.Type, variableGroupTypeAzureKeyVault)
+		}
+		if payload.ProviderData == nil {
+			t.Fatal("buildVariableGroupParameters(...): expected ProviderData to be set")
+		}
+	})
+
+	t.Run("InvalidServiceEndpointID", func(t *testing.T) {
+		p := v1alpha1.VariableGroupParameters{
+			ProjectID: projectID.String(),
+			Name:      testExampleName,
+			KeyVault:  &v1alpha1.KeyVaultReference{Name: testVaultName, ServiceEndpointID: "not-a-uuid"},
+		}
+		e := external{}
+		if _, err := e.buildVariableGroupParameters(context.Background(), variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) { cr.Spec.ForProvider = p })); err == nil {
+			t.Fatal("buildVariableGroupParameters(...): expected error for an invalid service endpoint id, got nil")
+		}
+	})
+
+	t.Run("InvalidProjectID", func(t *testing.T) {
+		p := v1alpha1.VariableGroupParameters{
+			ProjectID: "not-a-uuid",
+			Name:      testExampleName,
+		}
+		e := external{}
+		if _, err := e.buildVariableGroupParameters(context.Background(), variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) { cr.Spec.ForProvider = p })); err == nil {
+			t.Fatal("buildVariableGroupParameters(...): expected error for an invalid project id, got nil")
+		}
+	})
+
+	t.Run("InvalidParameters", func(t *testing.T) {
+		e := external{}
+		if _, err := e.buildVariableGroupParameters(context.Background(), variableGroupCRWith("", nil)); err == nil {
+			t.Fatal("buildVariableGroupParameters(...): expected error when required parameters are missing, got nil")
+		}
+	})
+}
+
+func TestValidateKeyVaultParameters(t *testing.T) {
+	cases := map[string]struct {
+		p       v1alpha1.VariableGroupParameters
+		wantErr bool
+	}{
+		"Valid": {
+			p: v1alpha1.VariableGroupParameters{
+				KeyVault: &v1alpha1.KeyVaultReference{Name: testVaultName, ServiceEndpointID: uuid.New().String()},
+			},
+		},
+		"MissingServiceEndpointID": {
+			p: v1alpha1.VariableGroupParameters{
+				KeyVault: &v1alpha1.KeyVaultReference{Name: testVaultName},
+			},
+			wantErr: true,
+		},
+		"MissingName": {
+			p: v1alpha1.VariableGroupParameters{
+				KeyVault: &v1alpha1.KeyVaultReference{ServiceEndpointID: uuid.New().String()},
+			},
+			wantErr: true,
+		},
+		"InlineVariablesNotSupported": {
+			p: v1alpha1.VariableGroupParameters{
+				KeyVault:  &v1alpha1.KeyVaultReference{Name: testVaultName, ServiceEndpointID: uuid.New().String()},
+				Variables: []v1alpha1.VariableGroupVariable{{Name: "foo", Value: "bar"}},
+			},
+			wantErr: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := validateKeyVaultParameters(tc.p)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateKeyVaultParameters(...): error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseServiceEndpointID(t *testing.T) {
+	id := uuid.New()
+	got, err := parseServiceEndpointID(id.String())
+	if err != nil {
+		t.Fatalf("parseServiceEndpointID(...): unexpected error: %v", err)
+	}
+	if got == nil || *got != id {
+		t.Fatalf("parseServiceEndpointID(...): got %v, want %v", got, id)
+	}
+
+	if _, err := parseServiceEndpointID("not-a-uuid"); err == nil {
+		t.Fatal("parseServiceEndpointID(...): expected error for an invalid uuid, got nil")
+	}
+}
+
+func TestDecodeVariableValue(t *testing.T) {
+	t.Run("Struct", func(t *testing.T) {
+		got, err := decodeVariableValue(taskagent.VariableValue{Value: strPtr("v")})
+		if err != nil {
+			t.Fatalf("decodeVariableValue(...): unexpected error: %v", err)
+		}
+		if valueOrEmpty(got.Value) != "v" {
+			t.Fatalf("decodeVariableValue(...): value = %q, want %q", valueOrEmpty(got.Value), "v")
+		}
+	})
+
+	t.Run("PointerNil", func(t *testing.T) {
+		got, err := decodeVariableValue((*taskagent.VariableValue)(nil))
+		if err != nil {
+			t.Fatalf("decodeVariableValue(...): unexpected error: %v", err)
+		}
+		if got != (taskagent.VariableValue{}) {
+			t.Fatalf("decodeVariableValue(...): got %+v, want zero value", got)
+		}
+	})
+
+	t.Run("PointerNonNil", func(t *testing.T) {
+		vv := taskagent.VariableValue{Value: strPtr("v")}
+		got, err := decodeVariableValue(&vv)
+		if err != nil {
+			t.Fatalf("decodeVariableValue(...): unexpected error: %v", err)
+		}
+		if valueOrEmpty(got.Value) != "v" {
+			t.Fatalf("decodeVariableValue(...): value = %q, want %q", valueOrEmpty(got.Value), "v")
+		}
+	})
+
+	t.Run("RawMap", func(t *testing.T) {
+		got, err := decodeVariableValue(map[string]interface{}{"value": "from-json", "isSecret": true})
+		if err != nil {
+			t.Fatalf("decodeVariableValue(...): unexpected error: %v", err)
+		}
+		if valueOrEmpty(got.Value) != "from-json" || !boolValue(got.IsSecret) {
+			t.Fatalf("decodeVariableValue(...): got %+v", got)
+		}
+	})
+
+	t.Run("RemarshalError", func(t *testing.T) {
+		if _, err := decodeVariableValue(func() {}); err == nil {
+			t.Fatal("decodeVariableValue(...): expected error when the value cannot be marshaled, got nil")
+		}
+	})
+}
+
+func TestDecodeProviderData(t *testing.T) {
+	t.Run("Nil", func(t *testing.T) {
+		got, err := decodeProviderData(nil)
+		if err != nil {
+			t.Fatalf("decodeProviderData(...): unexpected error: %v", err)
+		}
+		if got != nil {
+			t.Fatalf("decodeProviderData(...): got %+v, want nil", got)
+		}
+	})
+
+	t.Run("Struct", func(t *testing.T) {
+		id := uuid.New()
+		got, err := decodeProviderData(taskagent.AzureKeyVaultVariableGroupProviderData{Vault: strPtr("v"), ServiceEndpointId: &id})
+		if err != nil {
+			t.Fatalf("decodeProviderData(...): unexpected error: %v", err)
+		}
+		if got == nil || valueOrEmpty(got.Vault) != "v" {
+			t.Fatalf("decodeProviderData(...): got %+v", got)
+		}
+	})
+
+	t.Run("Pointer", func(t *testing.T) {
+		id := uuid.New()
+		in := &taskagent.AzureKeyVaultVariableGroupProviderData{Vault: strPtr("v"), ServiceEndpointId: &id}
+		got, err := decodeProviderData(in)
+		if err != nil {
+			t.Fatalf("decodeProviderData(...): unexpected error: %v", err)
+		}
+		if got != in {
+			t.Fatalf("decodeProviderData(...): got %p, want the same pointer %p", got, in)
+		}
+	})
+
+	t.Run("RawMap", func(t *testing.T) {
+		id := uuid.New()
+		got, err := decodeProviderData(map[string]interface{}{"vault": "v", "serviceEndpointId": id.String()})
+		if err != nil {
+			t.Fatalf("decodeProviderData(...): unexpected error: %v", err)
+		}
+		if got == nil || valueOrEmpty(got.Vault) != "v" {
+			t.Fatalf("decodeProviderData(...): got %+v", got)
+		}
+	})
+
+	t.Run("RemarshalError", func(t *testing.T) {
+		if _, err := decodeProviderData(func() {}); err == nil {
+			t.Fatal("decodeProviderData(...): expected error when the value cannot be marshaled, got nil")
+		}
+	})
+}
+
+func TestProjectReferencesMatch(t *testing.T) {
+	projectID := uuid.New()
+
+	cases := map[string]struct {
+		refs *[]taskagent.VariableGroupProjectReference
+		want bool
+	}{
+		"Nil":   {refs: nil, want: false},
+		"Empty": {refs: &[]taskagent.VariableGroupProjectReference{}, want: false},
+		"TooMany": {
+			refs: &[]taskagent.VariableGroupProjectReference{
+				{ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(projectID)}},
+				{ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(uuid.New())}},
+			},
+			want: false,
+		},
+		"NilProjectReference": {
+			refs: &[]taskagent.VariableGroupProjectReference{{ProjectReference: nil}},
+			want: false,
+		},
+		"NilID": {
+			refs: &[]taskagent.VariableGroupProjectReference{{ProjectReference: &taskagent.ProjectReference{}}},
+			want: false,
+		},
+		"Match": {
+			refs: &[]taskagent.VariableGroupProjectReference{{ProjectReference: &taskagent.ProjectReference{Id: uuidPtr(projectID)}}},
+			want: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := projectReferencesMatch(projectID.String(), tc.refs); got != tc.want {
+				t.Fatalf("projectReferencesMatch(...): got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeType(t *testing.T) {
+	if got := normalizeType(nil); got != variableGroupTypeVsts {
+		t.Fatalf("normalizeType(nil) = %q, want %q", got, variableGroupTypeVsts)
+	}
+	empty := ""
+	if got := normalizeType(&empty); got != variableGroupTypeVsts {
+		t.Fatalf("normalizeType(\"\") = %q, want %q", got, variableGroupTypeVsts)
+	}
+	kv := variableGroupTypeAzureKeyVault
+	if got := normalizeType(&kv); got != variableGroupTypeAzureKeyVault {
+		t.Fatalf("normalizeType(%q) = %q, want %q", kv, got, kv)
+	}
+}
+
+func TestUUIDStringOrEmpty(t *testing.T) {
+	if got := uuidStringOrEmpty(nil); got != "" {
+		t.Fatalf("uuidStringOrEmpty(nil) = %q, want \"\"", got)
+	}
+	id := uuid.New()
+	if got := uuidStringOrEmpty(&id); got != id.String() {
+		t.Fatalf("uuidStringOrEmpty(...) = %q, want %q", got, id.String())
+	}
+}
+
+func TestKeyVaultUpToDate(t *testing.T) {
+	serviceEndpointID := uuid.New()
+	desired := &v1alpha1.KeyVaultReference{Name: testVaultName, ServiceEndpointID: serviceEndpointID.String()}
+
+	t.Run("WrongObservedType", func(t *testing.T) {
+		got, err := keyVaultUpToDate(desired, variableGroupTypeVsts, nil)
+		if err != nil {
+			t.Fatalf("keyVaultUpToDate(...): unexpected error: %v", err)
+		}
+		if got {
+			t.Fatal("keyVaultUpToDate(...): got true, want false when observed type is not AzureKeyVault")
+		}
+	})
+
+	t.Run("NilProviderData", func(t *testing.T) {
+		got, err := keyVaultUpToDate(desired, variableGroupTypeAzureKeyVault, nil)
+		if err != nil {
+			t.Fatalf("keyVaultUpToDate(...): unexpected error: %v", err)
+		}
+		if got {
+			t.Fatal("keyVaultUpToDate(...): got true, want false when provider data is nil")
+		}
+	})
+
+	t.Run("DecodeError", func(t *testing.T) {
+		if _, err := keyVaultUpToDate(desired, variableGroupTypeAzureKeyVault, func() {}); err == nil {
+			t.Fatal("keyVaultUpToDate(...): expected error when provider data cannot be decoded, got nil")
+		}
+	})
+
+	t.Run("Match", func(t *testing.T) {
+		got, err := keyVaultUpToDate(desired, variableGroupTypeAzureKeyVault, map[string]interface{}{
+			"vault":             testVaultName,
+			"serviceEndpointId": serviceEndpointID.String(),
+		})
+		if err != nil {
+			t.Fatalf("keyVaultUpToDate(...): unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("keyVaultUpToDate(...): got false, want true")
+		}
+	})
+
+	t.Run("Mismatch", func(t *testing.T) {
+		got, err := keyVaultUpToDate(desired, variableGroupTypeAzureKeyVault, map[string]interface{}{
+			"vault":             "different-vault",
+			"serviceEndpointId": serviceEndpointID.String(),
+		})
+		if err != nil {
+			t.Fatalf("keyVaultUpToDate(...): unexpected error: %v", err)
+		}
+		if got {
+			t.Fatal("keyVaultUpToDate(...): got true, want false")
+		}
+	})
+}
+
+func TestSecretsUpToDate(t *testing.T) {
+	t.Run("KeyVaultGroupsSkipSecretCheck", func(t *testing.T) {
+		cr := variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) {
+			cr.Spec.ForProvider.KeyVault = &v1alpha1.KeyVaultReference{Name: "v", ServiceEndpointID: uuid.New().String()}
+		})
+		e := external{}
+		got, err := e.secretsUpToDate(context.Background(), cr)
+		if err != nil {
+			t.Fatalf("secretsUpToDate(...): unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("secretsUpToDate(...): got false, want true for a KeyVault-linked group")
+		}
+	})
+
+	t.Run("NoSecretVariables", func(t *testing.T) {
+		cr := variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) {
+			cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{{Name: testPlainVarName, Value: testPlainValue}}
+		})
+		e := external{}
+		got, err := e.secretsUpToDate(context.Background(), cr)
+		if err != nil {
+			t.Fatalf("secretsUpToDate(...): unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("secretsUpToDate(...): got false, want true when there are no secret variables")
+		}
+	})
+
+	t.Run("ResolveError", func(t *testing.T) {
+		cr := variableGroupCRWith("", func(cr *v1alpha1.VariableGroup) {
+			cr.Spec.ForProvider.Variables = []v1alpha1.VariableGroupVariable{{
+				Name:     testSecretVarName,
+				IsSecret: true,
+				ValueFrom: &v1alpha1.VariableValueSource{SecretKeyRef: xpv2.SecretKeySelector{
+					SecretReference: xpv2.SecretReference{Name: "missing", Namespace: testNamespace},
+					Key:             testSecretDataKey,
+				}},
+			}}
+		})
+		e := external{kube: fakeClient(t)}
+		if _, err := e.secretsUpToDate(context.Background(), cr); err == nil {
+			t.Fatal("secretsUpToDate(...): expected error when the referenced Secret cannot be resolved, got nil")
+		}
+	})
+}
+
 func strPtr(s string) *string         { return &s }
 func intPtr(i int) *int               { return &i }
 func uuidPtr(id uuid.UUID) *uuid.UUID { return &id }
+
+var errBoom = errors.New("boom")
