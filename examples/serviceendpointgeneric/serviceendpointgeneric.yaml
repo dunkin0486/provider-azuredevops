@@ -1,0 +1,18 @@
+apiVersion: serviceendpointgeneric.azuredevops.crossplane.io/v1alpha1
+kind: ServiceEndpointGeneric
+metadata:
+  name: example-serviceendpoint-generic
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-generic-connection
+    projectIdRef:
+      name: example-project
+    serverUrl: https://api.example.com
+    authorizationScheme: Token
+    passwordSecretRef:
+      name: serviceendpoint-generic-creds
+      namespace: default
+      key: password
