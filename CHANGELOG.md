@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.4.0...v0.5.0) (2026-09-08)
+
+
+### Features
+
+* add AgentPool resource ([#94](https://github.com/dunkin0486/provider-azuredevops/issues/94)) ([821f427](https://github.com/dunkin0486/provider-azuredevops/commit/821f4270a6364668e9d6466410f1a15145ea273a))
+* add ServiceEndpointDockerRegistry resource ([#99](https://github.com/dunkin0486/provider-azuredevops/issues/99)) ([6456169](https://github.com/dunkin0486/provider-azuredevops/commit/6456169d7522705542828cc6e81f6283a1cbb51e))
+* add ServiceEndpointKubernetes resource ([#97](https://github.com/dunkin0486/provider-azuredevops/issues/97)) ([27157a9](https://github.com/dunkin0486/provider-azuredevops/commit/27157a98d6e7648aa8311b781ba4c106c8e539b8))
+
+
+### Bug Fixes
+
+* use salted PBKDF2-HMAC-SHA256 for docker registry/kubernetes secret hashes ([#101](https://github.com/dunkin0486/provider-azuredevops/issues/101)) ([7ac6dc2](https://github.com/dunkin0486/provider-azuredevops/commit/7ac6dc2c30a45cf6a38be5f8c2a5a05207087427)), closes [#100](https://github.com/dunkin0486/provider-azuredevops/issues/100)
+* use salted PBKDF2-HMAC-SHA256 for secret drift-detection hashes ([#98](https://github.com/dunkin0486/provider-azuredevops/issues/98)) ([ebba81b](https://github.com/dunkin0486/provider-azuredevops/commit/ebba81b5e12513ab57148cf43241394b2a62b954)), closes [#95](https://github.com/dunkin0486/provider-azuredevops/issues/95)
+
 ## [0.4.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.3.1...v0.4.0) (2026-09-08)
 
 
