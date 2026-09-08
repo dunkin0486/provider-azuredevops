@@ -6,6 +6,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -48,10 +49,17 @@ func projectWith(name string, mutate func(cr *v1alpha1.Project)) *v1alpha1.Proje
 	return cr
 }
 
+const (
+	testProjectName      = "my-project"
+	testVisibilityPublic = "public"
+)
+
 func notFoundErr() error {
 	code := 404
 	return azuredevops.WrappedError{StatusCode: &code}
 }
+
+var errBoom = errors.New("boom")
 
 func TestObserve(t *testing.T) {
 	id := uuid.New()
@@ -93,7 +101,7 @@ func TestObserve(t *testing.T) {
 					return nil, notFoundErr()
 				},
 			}},
-			args: args{cr: projectWith("my-project", nil)},
+			args: args{cr: projectWith(testProjectName, nil)},
 			want: want{o: managed.ExternalObservation{ResourceExists: false}},
 		},
 		"UpToDate": {
@@ -102,13 +110,13 @@ func TestObserve(t *testing.T) {
 				GetProjectFn: func(_ context.Context, _ core.GetProjectArgs) (*core.TeamProject, error) {
 					return &core.TeamProject{
 						Id:         &id,
-						Name:       strPtr("my-project"),
+						Name:       strPtr(testProjectName),
 						State:      &wellFormed,
 						Visibility: &visibility,
 					}, nil
 				},
 			}},
-			args: args{cr: projectWith("my-project", func(cr *v1alpha1.Project) {
+			args: args{cr: projectWith(testProjectName, func(cr *v1alpha1.Project) {
 				cr.Spec.ForProvider.Visibility = "private"
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}},
@@ -119,14 +127,14 @@ func TestObserve(t *testing.T) {
 				GetProjectFn: func(_ context.Context, _ core.GetProjectArgs) (*core.TeamProject, error) {
 					return &core.TeamProject{
 						Id:         &id,
-						Name:       strPtr("my-project"),
+						Name:       strPtr(testProjectName),
 						State:      &wellFormed,
 						Visibility: &visibility,
 					}, nil
 				},
 			}},
-			args: args{cr: projectWith("my-project", func(cr *v1alpha1.Project) {
-				cr.Spec.ForProvider.Visibility = "public"
+			args: args{cr: projectWith(testProjectName, func(cr *v1alpha1.Project) {
+				cr.Spec.ForProvider.Visibility = testVisibilityPublic
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}},
 		},
@@ -136,12 +144,12 @@ func TestObserve(t *testing.T) {
 				GetProjectFn: func(_ context.Context, _ core.GetProjectArgs) (*core.TeamProject, error) {
 					return &core.TeamProject{
 						Id:    &id,
-						Name:  strPtr("my-project"),
+						Name:  strPtr(testProjectName),
 						State: &createPending,
 					}, nil
 				},
 			}},
-			args: args{cr: projectWith("my-project", nil)},
+			args: args{cr: projectWith(testProjectName, nil)},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.TypeReady, reason: xpv2.ReasonCreating},
 		},
 		"StillDeleting": {
@@ -150,12 +158,12 @@ func TestObserve(t *testing.T) {
 				GetProjectFn: func(_ context.Context, _ core.GetProjectArgs) (*core.TeamProject, error) {
 					return &core.TeamProject{
 						Id:    &id,
-						Name:  strPtr("my-project"),
+						Name:  strPtr(testProjectName),
 						State: &deleting,
 					}, nil
 				},
 			}},
-			args: args{cr: projectWith("my-project", nil)},
+			args: args{cr: projectWith(testProjectName, nil)},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.TypeReady, reason: xpv2.ReasonDeleting},
 		},
 	}
@@ -184,48 +192,324 @@ func TestCreate(t *testing.T) {
 	opID := uuid.New()
 	succeeded := operations.OperationStatusValues.Succeeded
 
-	cr := projectWith("", func(cr *v1alpha1.Project) {
-		cr.Spec.ForProvider.Name = "my-project"
+	t.Run("Success", func(t *testing.T) {
+		cr := projectWith("", func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Name = testProjectName
+		})
+
+		e := external{
+			project: &fake.ProjectClient{
+				QueueCreateProjectFn: func(_ context.Context, args core.QueueCreateProjectArgs) (*operations.OperationReference, error) {
+					if args.ProjectToCreate == nil || args.ProjectToCreate.Name == nil || *args.ProjectToCreate.Name != testProjectName {
+						t.Fatalf("QueueCreateProject called with unexpected project: %+v", args.ProjectToCreate)
+					}
+					return &operations.OperationReference{Id: &opID}, nil
+				},
+			},
+			operations: &fake.OperationsClient{
+				GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+					return &operations.Operation{Status: &succeeded}, nil
+				},
+			},
+		}
+
+		if _, err := e.Create(context.Background(), cr); err != nil {
+			t.Fatalf("e.Create(...): unexpected error: %v", err)
+		}
+
+		if got := meta.GetExternalName(cr); got != testProjectName {
+			t.Errorf("e.Create(...): external name = %q, want %q", got, testProjectName)
+		}
 	})
 
-	e := external{
-		project: &fake.ProjectClient{
-			QueueCreateProjectFn: func(_ context.Context, args core.QueueCreateProjectArgs) (*operations.OperationReference, error) {
-				if args.ProjectToCreate == nil || args.ProjectToCreate.Name == nil || *args.ProjectToCreate.Name != "my-project" {
-					t.Fatalf("QueueCreateProject called with unexpected project: %+v", args.ProjectToCreate)
-				}
-				return &operations.OperationReference{Id: &opID}, nil
-			},
-		},
-		operations: &fake.OperationsClient{
-			GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
-				return &operations.Operation{Status: &succeeded}, nil
-			},
-		},
-	}
+	t.Run("FullySpecified", func(t *testing.T) {
+		templateID := uuid.New()
+		templateName := "Agile"
 
-	if _, err := e.Create(context.Background(), cr); err != nil {
-		t.Fatalf("e.Create(...): unexpected error: %v", err)
-	}
+		cr := projectWith("", func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Name = testProjectName
+			cr.Spec.ForProvider.Description = "a description"
+			cr.Spec.ForProvider.Visibility = testVisibilityPublic
+			cr.Spec.ForProvider.VersionControl = "Git"
+			cr.Spec.ForProvider.WorkItemTemplate = "agile"
+		})
 
-	if got := meta.GetExternalName(cr); got != "my-project" {
-		t.Errorf("e.Create(...): external name = %q, want %q", got, "my-project")
-	}
+		var gotArgs core.QueueCreateProjectArgs
+		e := external{
+			project: &fake.ProjectClient{
+				GetProcessesFn: func(_ context.Context, _ core.GetProcessesArgs) (*[]core.Process, error) {
+					return &[]core.Process{{Id: &templateID, Name: &templateName}}, nil
+				},
+				QueueCreateProjectFn: func(_ context.Context, args core.QueueCreateProjectArgs) (*operations.OperationReference, error) {
+					gotArgs = args
+					return &operations.OperationReference{Id: &opID}, nil
+				},
+			},
+			operations: &fake.OperationsClient{
+				GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+					return &operations.Operation{Status: &succeeded}, nil
+				},
+			},
+		}
+
+		if _, err := e.Create(context.Background(), cr); err != nil {
+			t.Fatalf("e.Create(...): unexpected error: %v", err)
+		}
+
+		tp := gotArgs.ProjectToCreate
+		if tp == nil || tp.Description == nil || *tp.Description != "a description" {
+			t.Errorf("e.Create(...): unexpected description in %+v", tp)
+		}
+		if tp == nil || tp.Visibility == nil || string(*tp.Visibility) != testVisibilityPublic {
+			t.Errorf("e.Create(...): unexpected visibility in %+v", tp)
+		}
+		if tp == nil || tp.Capabilities == nil {
+			t.Fatalf("e.Create(...): expected capabilities to be set, got %+v", tp)
+		}
+		caps := *tp.Capabilities
+		if caps["versioncontrol"]["sourceControlType"] != "Git" {
+			t.Errorf("e.Create(...): unexpected versioncontrol capability: %+v", caps["versioncontrol"])
+		}
+		if caps["processTemplate"]["templateTypeId"] != templateID.String() {
+			t.Errorf("e.Create(...): unexpected processTemplate capability: %+v", caps["processTemplate"])
+		}
+	})
+
+	t.Run("ResolveProcessTemplateError", func(t *testing.T) {
+		cr := projectWith("", func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Name = testProjectName
+			cr.Spec.ForProvider.WorkItemTemplate = "unknown-template"
+		})
+
+		e := external{project: &fake.ProjectClient{
+			GetProcessesFn: func(_ context.Context, _ core.GetProcessesArgs) (*[]core.Process, error) {
+				return &[]core.Process{}, nil
+			},
+			QueueCreateProjectFn: func(_ context.Context, _ core.QueueCreateProjectArgs) (*operations.OperationReference, error) {
+				t.Fatal("QueueCreateProject should not be called when the process template cannot be resolved")
+				return nil, nil
+			},
+		}}
+
+		if _, err := e.Create(context.Background(), cr); err == nil {
+			t.Fatal("e.Create(...): expected error when the process template cannot be resolved, got nil")
+		}
+	})
+
+	t.Run("QueueCreateError", func(t *testing.T) {
+		cr := projectWith("", func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Name = testProjectName
+		})
+
+		e := external{project: &fake.ProjectClient{
+			QueueCreateProjectFn: func(_ context.Context, _ core.QueueCreateProjectArgs) (*operations.OperationReference, error) {
+				return nil, errBoom
+			},
+		}}
+
+		if _, err := e.Create(context.Background(), cr); err == nil {
+			t.Fatal("e.Create(...): expected error when QueueCreateProject fails, got nil")
+		}
+	})
+
+	t.Run("WaitForOperationError", func(t *testing.T) {
+		withOperationPollBackoff(t, wait.Backoff{Steps: 1})
+
+		cr := projectWith("", func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Name = testProjectName
+		})
+
+		e := external{
+			project: &fake.ProjectClient{
+				QueueCreateProjectFn: func(_ context.Context, _ core.QueueCreateProjectArgs) (*operations.OperationReference, error) {
+					return &operations.OperationReference{Id: &opID}, nil
+				},
+			},
+			operations: &fake.OperationsClient{
+				GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+					return nil, errBoom
+				},
+			},
+		}
+
+		if _, err := e.Create(context.Background(), cr); err == nil {
+			t.Fatal("e.Create(...): expected error when waitForOperation fails, got nil")
+		}
+	})
 }
 
 func TestDelete(t *testing.T) {
-	e := external{project: &fake.ProjectClient{
-		QueueDeleteProjectFn: func(_ context.Context, _ core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
-			t.Fatal("QueueDeleteProject should not be called when no project id has been observed")
-			return nil, nil
-		},
-	}}
+	t.Run("NoObservedID", func(t *testing.T) {
+		e := external{project: &fake.ProjectClient{
+			QueueDeleteProjectFn: func(_ context.Context, _ core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
+				t.Fatal("QueueDeleteProject should not be called when no project id has been observed")
+				return nil, nil
+			},
+		}}
 
-	cr := projectWith("my-project", nil)
+		cr := projectWith(testProjectName, nil)
 
-	if _, err := e.Delete(context.Background(), cr); err != nil {
-		t.Fatalf("e.Delete(...): unexpected error: %v", err)
-	}
+		if _, err := e.Delete(context.Background(), cr); err != nil {
+			t.Fatalf("e.Delete(...): unexpected error: %v", err)
+		}
+	})
+
+	t.Run("InvalidObservedID", func(t *testing.T) {
+		e := external{project: &fake.ProjectClient{
+			QueueDeleteProjectFn: func(_ context.Context, _ core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
+				t.Fatal("QueueDeleteProject should not be called when the observed id is not a valid UUID")
+				return nil, nil
+			},
+		}}
+
+		cr := projectWith(testProjectName, func(cr *v1alpha1.Project) {
+			cr.Status.AtProvider.ID = "not-a-uuid"
+		})
+
+		if _, err := e.Delete(context.Background(), cr); err == nil {
+			t.Fatal("e.Delete(...): expected error for an invalid observed project id, got nil")
+		}
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		id := uuid.New()
+		opID := uuid.New()
+		succeeded := operations.OperationStatusValues.Succeeded
+
+		var gotArgs core.QueueDeleteProjectArgs
+		e := external{
+			project: &fake.ProjectClient{
+				QueueDeleteProjectFn: func(_ context.Context, args core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
+					gotArgs = args
+					return &operations.OperationReference{Id: &opID}, nil
+				},
+			},
+			operations: &fake.OperationsClient{
+				GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+					return &operations.Operation{Status: &succeeded}, nil
+				},
+			},
+		}
+
+		cr := projectWith(testProjectName, func(cr *v1alpha1.Project) {
+			cr.Status.AtProvider.ID = id.String()
+		})
+
+		if _, err := e.Delete(context.Background(), cr); err != nil {
+			t.Fatalf("e.Delete(...): unexpected error: %v", err)
+		}
+
+		if gotArgs.ProjectId == nil || *gotArgs.ProjectId != id {
+			t.Errorf("e.Delete(...): QueueDeleteProject called with project id = %v, want %v", gotArgs.ProjectId, id)
+		}
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		id := uuid.New()
+		e := external{project: &fake.ProjectClient{
+			QueueDeleteProjectFn: func(_ context.Context, _ core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
+				return nil, notFoundErr()
+			},
+		}}
+
+		cr := projectWith(testProjectName, func(cr *v1alpha1.Project) {
+			cr.Status.AtProvider.ID = id.String()
+		})
+
+		if _, err := e.Delete(context.Background(), cr); err != nil {
+			t.Fatalf("e.Delete(...): unexpected error for a not-found project: %v", err)
+		}
+	})
+
+	t.Run("QueueDeleteError", func(t *testing.T) {
+		id := uuid.New()
+		e := external{project: &fake.ProjectClient{
+			QueueDeleteProjectFn: func(_ context.Context, _ core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
+				return nil, errBoom
+			},
+		}}
+
+		cr := projectWith(testProjectName, func(cr *v1alpha1.Project) {
+			cr.Status.AtProvider.ID = id.String()
+		})
+
+		if _, err := e.Delete(context.Background(), cr); err == nil {
+			t.Fatal("e.Delete(...): expected error when QueueDeleteProject fails, got nil")
+		}
+	})
+
+	t.Run("WaitForOperationError", func(t *testing.T) {
+		withOperationPollBackoff(t, wait.Backoff{Steps: 1})
+
+		id := uuid.New()
+		opID := uuid.New()
+		e := external{
+			project: &fake.ProjectClient{
+				QueueDeleteProjectFn: func(_ context.Context, _ core.QueueDeleteProjectArgs) (*operations.OperationReference, error) {
+					return &operations.OperationReference{Id: &opID}, nil
+				},
+			},
+			operations: &fake.OperationsClient{
+				GetOperationFn: func(_ context.Context, _ operations.GetOperationArgs) (*operations.Operation, error) {
+					return nil, errBoom
+				},
+			},
+		}
+
+		cr := projectWith(testProjectName, func(cr *v1alpha1.Project) {
+			cr.Status.AtProvider.ID = id.String()
+		})
+
+		if _, err := e.Delete(context.Background(), cr); err == nil {
+			t.Fatal("e.Delete(...): expected error when waitForOperation fails, got nil")
+		}
+	})
+}
+
+func TestResolveProcessTemplateID(t *testing.T) {
+	t.Run("Found", func(t *testing.T) {
+		id := uuid.New()
+		name := "Agile"
+		e := external{project: &fake.ProjectClient{
+			GetProcessesFn: func(_ context.Context, _ core.GetProcessesArgs) (*[]core.Process, error) {
+				return &[]core.Process{{Id: &id, Name: &name}}, nil
+			},
+		}}
+
+		got, err := e.resolveProcessTemplateID(context.Background(), "agile")
+		if err != nil {
+			t.Fatalf("e.resolveProcessTemplateID(...): unexpected error: %v", err)
+		}
+		if got != id.String() {
+			t.Errorf("e.resolveProcessTemplateID(...): got %q, want %q", got, id.String())
+		}
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		id := uuid.New()
+		name := "Agile"
+		e := external{project: &fake.ProjectClient{
+			GetProcessesFn: func(_ context.Context, _ core.GetProcessesArgs) (*[]core.Process, error) {
+				return &[]core.Process{{Id: &id, Name: &name}}, nil
+			},
+		}}
+
+		if _, err := e.resolveProcessTemplateID(context.Background(), "Scrum"); err == nil {
+			t.Fatal("e.resolveProcessTemplateID(...): expected error for an unknown template name, got nil")
+		}
+	})
+
+	t.Run("Error", func(t *testing.T) {
+		e := external{project: &fake.ProjectClient{
+			GetProcessesFn: func(_ context.Context, _ core.GetProcessesArgs) (*[]core.Process, error) {
+				return nil, errBoom
+			},
+		}}
+
+		if _, err := e.resolveProcessTemplateID(context.Background(), "Agile"); err == nil {
+			t.Fatal("e.resolveProcessTemplateID(...): expected error when GetProcesses fails, got nil")
+		}
+	})
 }
 
 func TestUpdate(t *testing.T) {
@@ -241,7 +525,7 @@ func TestUpdate(t *testing.T) {
 			},
 		}}
 
-		cr := projectWith("my-project", nil)
+		cr := projectWith(testProjectName, nil)
 
 		if _, err := e.Update(context.Background(), cr); err == nil {
 			t.Fatal("e.Update(...): expected error when no project id has been observed, got nil")
@@ -264,8 +548,8 @@ func TestUpdate(t *testing.T) {
 			},
 		}
 
-		cr := projectWith("my-project", func(cr *v1alpha1.Project) {
-			cr.Spec.ForProvider.Visibility = "public"
+		cr := projectWith(testProjectName, func(cr *v1alpha1.Project) {
+			cr.Spec.ForProvider.Visibility = testVisibilityPublic
 			cr.Status.AtProvider.ID = id.String()
 		})
 
@@ -276,7 +560,7 @@ func TestUpdate(t *testing.T) {
 		if gotArgs.ProjectId == nil || *gotArgs.ProjectId != id {
 			t.Errorf("e.Update(...): UpdateProject called with project id = %v, want %v", gotArgs.ProjectId, id)
 		}
-		if gotArgs.ProjectUpdate == nil || gotArgs.ProjectUpdate.Visibility == nil || string(*gotArgs.ProjectUpdate.Visibility) != "public" {
+		if gotArgs.ProjectUpdate == nil || gotArgs.ProjectUpdate.Visibility == nil || string(*gotArgs.ProjectUpdate.Visibility) != testVisibilityPublic {
 			t.Errorf("e.Update(...): UpdateProject called with unexpected visibility: %+v", gotArgs.ProjectUpdate)
 		}
 	})
