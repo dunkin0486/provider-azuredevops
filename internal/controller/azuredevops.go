@@ -29,6 +29,7 @@ import (
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/groupmembership"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/project"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointazurerm"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointdockerregistry"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointgeneric"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointgithub"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointkubernetes"
@@ -49,6 +50,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 		groupmembership.SetupGated,
 		project.SetupGated,
 		serviceendpointazurerm.SetupGated,
+		serviceendpointdockerregistry.SetupGated,
 		serviceendpointgeneric.SetupGated,
 		serviceendpointgithub.SetupGated,
 		serviceendpointkubernetes.SetupGated,
