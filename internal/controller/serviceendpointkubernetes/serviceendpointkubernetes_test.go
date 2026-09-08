@@ -572,3 +572,277 @@ func TestSecretRedaction(t *testing.T) {
 
 func boolPtr(b bool) *bool            { return &b }
 func uuidPtr(id uuid.UUID) *uuid.UUID { return &id }
+
+func TestResolveAuthSecretValue(t *testing.T) {
+	kubeconfigSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: testKubeconfigSecretName, Namespace: defaultNamespace},
+		Data:       map[string][]byte{testKubeconfigSecretKey: []byte("kubeconfig-data")},
+	}
+	tokenSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: testTokenSecretName, Namespace: defaultNamespace},
+		Data:       map[string][]byte{testTokenSecretKey: []byte("token-data")},
+	}
+
+	cases := map[string]struct {
+		kube    client.Client
+		params  v1alpha1.ServiceEndpointKubernetesParameters
+		want    string
+		wantErr bool
+	}{
+		"Kubeconfig": {
+			kube: newKube(t, kubeconfigSecret),
+			params: v1alpha1.ServiceEndpointKubernetesParameters{
+				AuthorizationType:   authorizationTypeKubeconfig,
+				KubeconfigSecretRef: kubeconfigSecretRef(),
+			},
+			want: "kubeconfig-data",
+		},
+		"ServiceAccount": {
+			kube: newKube(t, tokenSecret),
+			params: v1alpha1.ServiceEndpointKubernetesParameters{
+				AuthorizationType:            authorizationTypeServiceAccount,
+				ServiceAccountTokenSecretRef: serviceAccountTokenSecretRef(),
+			},
+			want: "token-data",
+		},
+		"AzureSubscriptionReturnsEmpty": {
+			kube: newKube(t),
+			params: v1alpha1.ServiceEndpointKubernetesParameters{
+				AuthorizationType: authorizationTypeAzureSubscription,
+			},
+			want: "",
+		},
+		"InvalidAuthorizationType": {
+			kube: newKube(t),
+			params: v1alpha1.ServiceEndpointKubernetesParameters{
+				AuthorizationType: "bogus",
+			},
+			wantErr: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := external{kube: tc.kube}
+			got, err := e.resolveAuthSecretValue(context.Background(), tc.params)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("resolveAuthSecretValue(...): expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveAuthSecretValue(...): unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("resolveAuthSecretValue(...) = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidateParameters(t *testing.T) {
+	valid := func() v1alpha1.ServiceEndpointKubernetesParameters {
+		return serviceEndpointCR("", nil).Spec.ForProvider
+	}
+
+	cases := map[string]struct {
+		mutate  func(p *v1alpha1.ServiceEndpointKubernetesParameters)
+		wantErr string
+	}{
+		"Valid": {mutate: func(_ *v1alpha1.ServiceEndpointKubernetesParameters) {}},
+		"MissingName": {
+			mutate:  func(p *v1alpha1.ServiceEndpointKubernetesParameters) { p.Name = "" },
+			wantErr: errMissingName,
+		},
+		"MissingProjectID": {
+			mutate:  func(p *v1alpha1.ServiceEndpointKubernetesParameters) { p.ProjectID = "" },
+			wantErr: errMissingProjectID,
+		},
+		"MissingClusterServer": {
+			mutate:  func(p *v1alpha1.ServiceEndpointKubernetesParameters) { p.ClusterServer = "" },
+			wantErr: errMissingClusterServer,
+		},
+		"InvalidAuthorizationType": {
+			mutate:  func(p *v1alpha1.ServiceEndpointKubernetesParameters) { p.AuthorizationType = "bogus" },
+			wantErr: errInvalidAuthorizationType,
+		},
+		"KubeconfigMissingSecretRef": {
+			mutate: func(p *v1alpha1.ServiceEndpointKubernetesParameters) {
+				p.AuthorizationType = authorizationTypeKubeconfig
+				p.KubeconfigSecretRef = nil
+			},
+			wantErr: errMissingKubeconfigSecretRef,
+		},
+		"KubeconfigValid": {
+			mutate: func(p *v1alpha1.ServiceEndpointKubernetesParameters) {
+				p.AuthorizationType = authorizationTypeKubeconfig
+				p.KubeconfigSecretRef = kubeconfigSecretRef()
+			},
+		},
+		"ServiceAccountMissingSecretRef": {
+			mutate: func(p *v1alpha1.ServiceEndpointKubernetesParameters) {
+				p.ServiceAccountTokenSecretRef = nil
+			},
+			wantErr: errMissingServiceAccountTokenSecret,
+		},
+		"ServiceAccountMissingCACertificate": {
+			mutate: func(p *v1alpha1.ServiceEndpointKubernetesParameters) {
+				p.ClusterCACertificate = ""
+			},
+			wantErr: errMissingClusterCACertificate,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := valid()
+			tc.mutate(&p)
+			err := validateParameters(p)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateParameters(...): unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validateParameters(...): error = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsUpToDateKubernetes(t *testing.T) {
+	id := uuid.New()
+
+	serviceAccountParams := serviceEndpointCR("", nil).Spec.ForProvider
+	kubeconfigParams := serviceEndpointCR("", func(cr *v1alpha1.ServiceEndpointKubernetes) {
+		cr.Spec.ForProvider.AuthorizationType = authorizationTypeKubeconfig
+		cr.Spec.ForProvider.KubeconfigSecretRef = kubeconfigSecretRef()
+		cr.Spec.ForProvider.ServiceAccountTokenSecretRef = nil
+		cr.Spec.ForProvider.ClusterCACertificate = ""
+	}).Spec.ForProvider
+
+	cases := map[string]struct {
+		params   v1alpha1.ServiceEndpointKubernetesParameters
+		endpoint *adoserviceendpoint.ServiceEndpoint
+		want     bool
+	}{
+		"NilEndpoint": {
+			params:   serviceAccountParams,
+			endpoint: nil,
+			want:     false,
+		},
+		"UpToDateServiceAccount": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				params := map[string]string{authParamServiceAccountCert: serviceAccountParams.ClusterCACertificate}
+				e.Authorization.Parameters = &params
+			}),
+			want: true,
+		},
+		"UpToDateKubeconfig": {
+			params: kubeconfigParams,
+			endpoint: endpointWith(id, true, authSchemeKubernetes, authorizationTypeKubeconfig, func(e *adoserviceendpoint.ServiceEndpoint) {
+				e.Authorization.Parameters = &map[string]string{}
+			}),
+			want: true,
+		},
+		"NameMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				name := "different"
+				e.Name = &name
+			}),
+			want: false,
+		},
+		"TypeMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				typ := "other"
+				e.Type = &typ
+			}),
+			want: false,
+		},
+		"URLMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				url := "https://different.example.com"
+				e.Url = &url
+			}),
+			want: false,
+		},
+		"NilAuthorization": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				e.Authorization = nil
+			}),
+			want: false,
+		},
+		"InvalidDesiredAuthType": {
+			params: func() v1alpha1.ServiceEndpointKubernetesParameters {
+				p := serviceAccountParams
+				p.AuthorizationType = "bogus"
+				return p
+			}(),
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, nil),
+			want:     false,
+		},
+		"SchemeMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeKubernetes, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				params := map[string]string{authParamServiceAccountCert: serviceAccountParams.ClusterCACertificate}
+				e.Authorization.Parameters = &params
+			}),
+			want: false,
+		},
+		"DataAuthorizationTypeMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeKubeconfig, func(e *adoserviceendpoint.ServiceEndpoint) {
+				params := map[string]string{authParamServiceAccountCert: serviceAccountParams.ClusterCACertificate}
+				e.Authorization.Parameters = &params
+			}),
+			want: false,
+		},
+		"AcceptUntrustedCertsMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				data := map[string]string{
+					dataKeyAuthorizationType:    authorizationTypeServiceAccount,
+					dataKeyAcceptUntrustedCerts: "true",
+				}
+				e.Data = &data
+				params := map[string]string{authParamServiceAccountCert: serviceAccountParams.ClusterCACertificate}
+				e.Authorization.Parameters = &params
+			}),
+			want: false,
+		},
+		"NilAuthorizationParametersEmptyCACert": {
+			params: func() v1alpha1.ServiceEndpointKubernetesParameters {
+				p := serviceAccountParams
+				p.ClusterCACertificate = ""
+				return p
+			}(),
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				e.Authorization.Parameters = nil
+			}),
+			want: true,
+		},
+		"CertMismatch": {
+			params: serviceAccountParams,
+			endpoint: endpointWith(id, true, authSchemeToken, authorizationTypeServiceAccount, func(e *adoserviceendpoint.ServiceEndpoint) {
+				params := map[string]string{authParamServiceAccountCert: "different-cert"}
+				e.Authorization.Parameters = &params
+			}),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := isUpToDate(tc.params, tc.endpoint); got != tc.want {
+				t.Fatalf("isUpToDate(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -579,3 +579,119 @@ func uuidMustParse(t *testing.T, s string) uuid.UUID {
 	}
 	return id
 }
+
+func TestGetProjectID(t *testing.T) {
+	got, err := getProjectID(branchPolicyMinReviewersWith("", nil))
+	if err != nil {
+		t.Fatalf("getProjectID(...): unexpected error: %v", err)
+	}
+	if got != testProjectID {
+		t.Fatalf("getProjectID(...) = %q, want %q", got, testProjectID)
+	}
+
+	if _, err := getProjectID(branchPolicyMinReviewersWith("", func(cr *v1alpha1.BranchPolicyMinReviewers) { cr.Spec.ForProvider.ProjectID = "" })); err == nil {
+		t.Fatal("getProjectID(...): expected error when projectId is empty, got nil")
+	}
+}
+
+func TestIsUpToDate(t *testing.T) {
+	desired := branchPolicyMinReviewersWith("", func(cr *v1alpha1.BranchPolicyMinReviewers) {
+		cr.Spec.ForProvider.CreatorVoteCounts = true
+		cr.Spec.ForProvider.ResetOnSourcePush = true
+	}).Spec.ForProvider
+
+	cases := map[string]struct {
+		current *policy.PolicyConfiguration
+		want    bool
+		wantErr bool
+	}{
+		"NilCurrent": {current: nil, want: false},
+		"UpToDate":   {current: minimumReviewerPolicy(18, nil), want: true},
+		"NotEnabled": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) {
+				enabled := false
+				cfg.IsEnabled = &enabled
+			}),
+			want: false,
+		},
+		"NotBlocking": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) {
+				blocking := false
+				cfg.IsBlocking = &blocking
+			}),
+			want: false,
+		},
+		"SettingsMismatch": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) {
+				cfg.Settings.(map[string]interface{})[settingsMinimumApproverCountKey] = 5
+			}),
+			want: false,
+		},
+		"UnexpectedPolicyType": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) {
+				otherID := uuid.New()
+				cfg.Type.Id = &otherID
+			}),
+			wantErr: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := isUpToDate(desired, tc.current)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("isUpToDate(...): expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("isUpToDate(...): unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("isUpToDate(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchesTopLevelConfiguration(t *testing.T) {
+	desired := branchPolicyMinReviewersWith("", nil).Spec.ForProvider
+
+	cases := map[string]struct {
+		current *policy.PolicyConfiguration
+		want    bool
+	}{
+		"Matches": {current: minimumReviewerPolicy(18, nil), want: true},
+		"NilIsEnabled": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) { cfg.IsEnabled = nil }),
+			want:    false,
+		},
+		"EnabledMismatch": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) {
+				enabled := false
+				cfg.IsEnabled = &enabled
+			}),
+			want: false,
+		},
+		"NilIsBlocking": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) { cfg.IsBlocking = nil }),
+			want:    false,
+		},
+		"BlockingMismatch": {
+			current: minimumReviewerPolicy(18, func(cfg *policy.PolicyConfiguration) {
+				blocking := false
+				cfg.IsBlocking = &blocking
+			}),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := matchesTopLevelConfiguration(desired, tc.current); got != tc.want {
+				t.Fatalf("matchesTopLevelConfiguration(...) = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -359,3 +359,17 @@ func TestDelete(t *testing.T) {
 		}
 	})
 }
+
+func TestGetProjectID(t *testing.T) {
+	got, err := getProjectID(teamWith("", nil))
+	if err != nil {
+		t.Fatalf("getProjectID(...): unexpected error: %v", err)
+	}
+	if got != defaultProjectID {
+		t.Fatalf("getProjectID(...) = %q, want %q", got, defaultProjectID)
+	}
+
+	if _, err := getProjectID(teamWith("", func(cr *v1alpha1.Team) { cr.Spec.ForProvider.ProjectID = "" })); err == nil {
+		t.Fatal("getProjectID(...): expected error when projectId is empty, got nil")
+	}
+}

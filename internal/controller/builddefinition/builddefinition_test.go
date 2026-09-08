@@ -382,3 +382,125 @@ func TestObservationAndComparisonHelpers(t *testing.T) {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+func TestYamlFilenameFromProcess(t *testing.T) {
+	cases := map[string]struct {
+		process  interface{}
+		wantName string
+		wantOK   bool
+	}{
+		"PointerYamlProcess": {
+			process:  &adobuild.YamlProcess{YamlFilename: strPtr(testYAMLPath)},
+			wantName: testYAMLPath,
+			wantOK:   true,
+		},
+		"ValueYamlProcess": {
+			process:  adobuild.YamlProcess{YamlFilename: strPtr(testYAMLPath)},
+			wantName: testYAMLPath,
+			wantOK:   true,
+		},
+		"GenericMap": {
+			process:  map[string]interface{}{"yamlFilename": testYAMLPath},
+			wantName: testYAMLPath,
+			wantOK:   true,
+		},
+		"GenericMapMissingKey": {
+			process: map[string]interface{}{},
+			wantOK:  false,
+		},
+		"GenericMapWrongType": {
+			process: map[string]interface{}{"yamlFilename": 5},
+			wantOK:  false,
+		},
+		"RemarshalableStruct": {
+			process:  struct{ YamlFilename *string }{YamlFilename: strPtr(testYAMLPath)},
+			wantName: testYAMLPath,
+			wantOK:   true,
+		},
+		"RemarshalableNilFilename": {
+			process: struct{}{},
+			wantOK:  false,
+		},
+		"UnmarshalableDefault": {
+			process: func() {},
+			wantOK:  false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotName, gotOK := yamlFilenameFromProcess(tc.process)
+			if gotOK != tc.wantOK || (tc.wantOK && gotName != tc.wantName) {
+				t.Fatalf("yamlFilenameFromProcess(...) = (%q, %v), want (%q, %v)", gotName, gotOK, tc.wantName, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestTriggerTypeFrom(t *testing.T) {
+	ci := adobuild.DefinitionTriggerTypeValues.ContinuousIntegration
+	pr := adobuild.DefinitionTriggerTypeValues.PullRequest
+
+	cases := map[string]struct {
+		trigger interface{}
+		want    string
+	}{
+		"PointerCITrigger": {
+			trigger: &adobuild.ContinuousIntegrationTrigger{TriggerType: &ci},
+			want:    string(ci),
+		},
+		"ValueCITrigger": {
+			trigger: adobuild.ContinuousIntegrationTrigger{TriggerType: &ci},
+			want:    string(ci),
+		},
+		"PointerPRTrigger": {
+			trigger: &adobuild.PullRequestTrigger{TriggerType: &pr},
+			want:    string(pr),
+		},
+		"ValuePRTrigger": {
+			trigger: adobuild.PullRequestTrigger{TriggerType: &pr},
+			want:    string(pr),
+		},
+		"GenericMap": {
+			trigger: map[string]interface{}{"triggerType": string(ci)},
+			want:    string(ci),
+		},
+		"GenericMapMissingKey": {
+			trigger: map[string]interface{}{},
+			want:    "",
+		},
+		"Unrecognized": {
+			trigger: 42,
+			want:    "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := triggerTypeFrom(tc.trigger); got != tc.want {
+				t.Fatalf("triggerTypeFrom(...) = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func TestGetProjectID(t *testing.T) {
+	cr := buildDefinitionCRWith(testDefinitionID, func(cr *v1alpha1.BuildDefinition) {
+		cr.Spec.ForProvider.ProjectID = testProjectID
+	})
+	got, err := getProjectID(cr)
+	if err != nil {
+		t.Fatalf("getProjectID(...): unexpected error: %v", err)
+	}
+	if got != testProjectID {
+		t.Fatalf("getProjectID(...) = %q, want %q", got, testProjectID)
+	}
+
+	if _, err := getProjectID(buildDefinitionCRWith(testDefinitionID, func(cr *v1alpha1.BuildDefinition) {
+		cr.Spec.ForProvider.ProjectID = ""
+	})); err == nil {
+		t.Fatal("getProjectID(...): expected error when projectId is empty, got nil")
+	}
+}

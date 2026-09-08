@@ -438,3 +438,51 @@ func TestDelete(t *testing.T) {
 		}
 	})
 }
+
+func TestGetProjectID(t *testing.T) {
+	got, err := getProjectID(environmentWith("", nil))
+	if err != nil {
+		t.Fatalf("getProjectID(...): unexpected error: %v", err)
+	}
+	if got != defaultProjectID {
+		t.Fatalf("getProjectID(...) = %q, want %q", got, defaultProjectID)
+	}
+
+	if _, err := getProjectID(environmentWith("", func(cr *v1alpha1.Environment) { cr.Spec.ForProvider.ProjectID = "" })); err == nil {
+		t.Fatal("getProjectID(...): expected error when projectId is empty, got nil")
+	}
+}
+
+func TestIdentityString(t *testing.T) {
+	cases := map[string]struct {
+		identity *webapi.IdentityRef
+		want     string
+	}{
+		"Nil":         {identity: nil, want: ""},
+		"DisplayName": {identity: &webapi.IdentityRef{DisplayName: stringPtr("Example User")}, want: "Example User"},
+		"EmptyDisplayNameFallsBackToUniqueName": {
+			identity: &webapi.IdentityRef{DisplayName: stringPtr(""), UniqueName: stringPtr("example@example.com")},
+			want:     "example@example.com",
+		},
+		"NoDisplayNameFallsBackToUniqueName": {
+			identity: &webapi.IdentityRef{UniqueName: stringPtr("example@example.com")},
+			want:     "example@example.com",
+		},
+		"FallsBackToID": {
+			identity: &webapi.IdentityRef{UniqueName: stringPtr(""), Id: stringPtr("user-id")},
+			want:     "user-id",
+		},
+		"AllEmpty": {
+			identity: &webapi.IdentityRef{DisplayName: stringPtr(""), UniqueName: stringPtr(""), Id: stringPtr("")},
+			want:     "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := identityString(tc.identity); got != tc.want {
+				t.Fatalf("identityString(...) = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
