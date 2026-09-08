@@ -1,0 +1,17 @@
+apiVersion: serviceendpointgithub.azuredevops.crossplane.io/v1alpha1
+kind: ServiceEndpointGitHub
+metadata:
+  name: example-serviceendpoint-github
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-github-connection
+    projectIdRef:
+      name: example-project
+    authScheme: PersonalAccessToken
+    tokenSecretRef:
+      name: serviceendpoint-github-token
+      namespace: default
+      key: token

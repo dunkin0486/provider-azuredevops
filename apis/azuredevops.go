@@ -28,6 +28,7 @@ import (
 	projectv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/project/v1alpha1"
 	serviceendpointazurermv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointazurerm/v1alpha1"
 	serviceendpointgenericv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointgeneric/v1alpha1"
+	serviceendpointgithubv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointgithub/v1alpha1"
 	teamv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/team/v1alpha1"
 	azuredevopsv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/v1alpha1"
 	variablegroupv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/variablegroup/v1alpha1"
@@ -45,6 +46,7 @@ func init() {
 		projectv1alpha1.SchemeBuilder.AddToScheme,
 		serviceendpointazurermv1alpha1.SchemeBuilder.AddToScheme,
 		serviceendpointgenericv1alpha1.SchemeBuilder.AddToScheme,
+		serviceendpointgithubv1alpha1.SchemeBuilder.AddToScheme,
 		teamv1alpha1.SchemeBuilder.AddToScheme,
 		variablegroupv1alpha1.SchemeBuilder.AddToScheme,
 	)
