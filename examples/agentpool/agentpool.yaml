@@ -1,0 +1,13 @@
+apiVersion: agentpool.azuredevops.crossplane.io/v1alpha1
+kind: AgentPool
+metadata:
+  name: example-agent-pool
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-self-hosted-pool
+    autoProvision: true
+    autoUpdate: false
+    isHosted: false
