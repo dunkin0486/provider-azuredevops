@@ -6,8 +6,6 @@ package variablegroup
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"sort"
 	"strconv"
@@ -33,6 +31,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/variablegroup/v1alpha1"
 	azuredevops "github.com/dunkin0486/provider-azuredevops/internal/clients/azuredevops"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const (
@@ -54,13 +53,14 @@ const (
 	variableGroupTypeAzureKeyVault = "AzureKeyVault"
 )
 
-// annotationSecretsHash stores a SHA-256 hash of the currently-applied
-// secret-valued variables' plaintext values. Azure DevOps never returns
-// secret variable values back on read, so there is no way to detect drift
-// (e.g. a rotated Kubernetes Secret) by comparing against the observed
-// variable group alone -- this annotation lets Observe detect that the
-// *referenced* Secret's value has changed since the last Create/Update and
-// force a resync.
+// annotationSecretsHash stores a secrethash.Hash digest of the
+// currently-applied secret-valued variables' plaintext values. Azure DevOps
+// never returns secret variable values back on read, so there is no way to
+// detect drift (e.g. a rotated Kubernetes Secret) by comparing against the
+// observed variable group alone -- this annotation lets Observe detect that
+// the *referenced* Secret's value has changed since the last Create/Update
+// and force a resync. See the secrethash package for why a salted,
+// computationally expensive digest is used instead of a bare fast hash.
 const annotationSecretsHash = "variablegroup.azuredevops.crossplane.io/secrets-hash"
 
 // SetupGated adds a controller that reconciles VariableGroup managed resources with safe-start support.
@@ -189,14 +189,14 @@ func (c *external) secretsUpToDate(ctx context.Context, cr *v1alpha1.VariableGro
 	if cr.Spec.ForProvider.KeyVault != nil {
 		return true, nil
 	}
-	hash, err := c.currentSecretsHash(ctx, cr.Spec.ForProvider)
+	canonical, err := c.currentSecretsCanonicalValue(ctx, cr.Spec.ForProvider)
 	if err != nil {
 		return false, err
 	}
-	if hash == "" {
+	if canonical == "" {
 		return true, nil
 	}
-	return hash == cr.GetAnnotations()[annotationSecretsHash], nil
+	return secrethash.Matches(canonical, cr.GetAnnotations()[annotationSecretsHash]), nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.VariableGroup) (managed.ExternalCreation, error) {
@@ -215,7 +215,9 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.VariableGroup) (mana
 		meta.SetExternalName(cr, id)
 	}
 	cr.Status.AtProvider = observationFromVariableGroup(vg)
-	setSecretsHashAnnotation(cr, payload.Variables)
+	if err := setSecretsHashAnnotation(cr, payload.Variables); err != nil {
+		return managed.ExternalCreation{}, errors.Wrap(err, errCreateVariableGroup)
+	}
 
 	return managed.ExternalCreation{}, nil
 }
@@ -243,7 +245,9 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.VariableGroup) (mana
 	}
 
 	cr.Status.AtProvider = observationFromVariableGroup(vg)
-	setSecretsHashAnnotation(cr, payload.Variables)
+	if err := setSecretsHashAnnotation(cr, payload.Variables); err != nil {
+		return managed.ExternalUpdate{}, errors.Wrap(err, errUpdateVariableGroup)
+	}
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -366,35 +370,46 @@ func (c *external) resolveSecretValue(ctx context.Context, selector xpv2.SecretK
 	return string(value), nil
 }
 
-// currentSecretsHash re-resolves p's secret-valued variables from their
-// referenced Kubernetes Secrets right now and returns a hash of their
-// current values, so Observe can detect drift that Azure DevOps' API can
-// never surface (it never returns secret values back). Returns "" if there
-// are no secret variables at all.
-func (c *external) currentSecretsHash(ctx context.Context, p v1alpha1.VariableGroupParameters) (string, error) {
+// currentSecretsCanonicalValue re-resolves p's secret-valued variables from
+// their referenced Kubernetes Secrets right now and returns a deterministic
+// string encoding of their current name/value pairs, so Observe can detect
+// drift that Azure DevOps' API can never surface (it never returns secret
+// values back). Returns "" if there are no secret variables at all. The
+// result is suitable as direct input to secrethash.Hash/secrethash.Matches.
+func (c *external) currentSecretsCanonicalValue(ctx context.Context, p v1alpha1.VariableGroupParameters) (string, error) {
 	resolved, err := c.resolveVariables(ctx, p.Variables)
 	if err != nil {
 		return "", err
 	}
-	return secretsHashFromVariables(&resolved)
+	return secretsCanonicalValue(&resolved)
 }
 
-// setSecretsHashAnnotation records a hash of payload's secret-valued
-// variables on cr so a future Observe can detect if the referenced Secret's
-// value has since changed (see annotationSecretsHash).
-func setSecretsHashAnnotation(cr *v1alpha1.VariableGroup, variables *map[string]interface{}) {
-	hash, err := secretsHashFromVariables(variables)
-	if err != nil || hash == "" {
-		return
+// setSecretsHashAnnotation records a secrethash.Hash digest of payload's
+// secret-valued variables on cr so a future Observe can detect if the
+// referenced Secret's value has since changed (see annotationSecretsHash).
+func setSecretsHashAnnotation(cr *v1alpha1.VariableGroup, variables *map[string]interface{}) error {
+	canonical, err := secretsCanonicalValue(variables)
+	if err != nil {
+		return err
+	}
+	if canonical == "" {
+		return nil
+	}
+	hash, err := secrethash.Hash(canonical)
+	if err != nil {
+		return err
 	}
 	meta.AddAnnotations(cr, map[string]string{annotationSecretsHash: hash})
+	return nil
 }
 
-// secretsHashFromVariables computes a deterministic SHA-256 hash over the
+// secretsCanonicalValue computes a deterministic string encoding of the
 // name/value pairs of every variable in variables that is marked secret.
 // Returns "" if there are no secret variables, so callers can distinguish
-// "no secrets to track" from "hash of zero-length secrets".
-func secretsHashFromVariables(variables *map[string]interface{}) (string, error) {
+// "no secrets to track" from "canonical value of zero-length secrets". The
+// result is intended to be fed into secrethash.Hash/secrethash.Matches
+// rather than hashed directly by callers.
+func secretsCanonicalValue(variables *map[string]interface{}) (string, error) {
 	if variables == nil {
 		return "", nil
 	}
@@ -416,14 +431,14 @@ func secretsHashFromVariables(variables *map[string]interface{}) (string, error)
 	}
 	sort.Strings(names)
 
-	h := sha256.New()
+	var b strings.Builder
 	for _, name := range names {
-		h.Write([]byte(name))
-		h.Write([]byte{0})
-		h.Write([]byte(values[name]))
-		h.Write([]byte{0})
+		b.WriteString(name)
+		b.WriteByte(0)
+		b.WriteString(values[name])
+		b.WriteByte(0)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return b.String(), nil
 }
 
 func observationFromVariableGroup(vg *taskagent.VariableGroup) v1alpha1.VariableGroupObservation {

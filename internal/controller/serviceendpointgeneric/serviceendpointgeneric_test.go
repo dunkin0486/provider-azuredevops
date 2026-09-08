@@ -28,6 +28,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointgeneric/v1alpha1"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointgeneric/fake"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const defaultNamespace = "default"
@@ -267,8 +268,8 @@ func TestCreate(t *testing.T) {
 		if gotName := meta.GetExternalName(cr); gotName != endpointID.String() {
 			t.Fatalf("e.Create(...): external name = %q, want %q", gotName, endpointID.String())
 		}
-		if got := cr.GetAnnotations()[annotationPasswordHash]; got != hashPassword(secretValue) {
-			t.Fatalf("e.Create(...): password hash annotation = %q, want hash of %q", got, secretValue)
+		if got := cr.GetAnnotations()[annotationPasswordHash]; !secrethash.Matches(secretValue, got) {
+			t.Fatalf("e.Create(...): password hash annotation = %q, does not match %q", got, secretValue)
 		}
 	})
 
@@ -302,8 +303,8 @@ func TestCreate(t *testing.T) {
 		if _, ok := params[authParamUsername]; ok {
 			t.Fatalf("e.Create(...): token auth unexpectedly included %q", authParamUsername)
 		}
-		if got := cr.GetAnnotations()[annotationPasswordHash]; got != hashPassword(secretValue) {
-			t.Fatalf("e.Create(...): password hash annotation = %q, want hash of %q", got, secretValue)
+		if got := cr.GetAnnotations()[annotationPasswordHash]; !secrethash.Matches(secretValue, got) {
+			t.Fatalf("e.Create(...): password hash annotation = %q, does not match %q", got, secretValue)
 		}
 	})
 
@@ -397,8 +398,8 @@ func TestUpdate(t *testing.T) {
 		if params[authParamAPIToken] != secretValue {
 			t.Fatalf("e.Update(...): apitoken = %q, want %q", params[authParamAPIToken], secretValue)
 		}
-		if got := cr.GetAnnotations()[annotationPasswordHash]; got != hashPassword(secretValue) {
-			t.Fatalf("e.Update(...): password hash annotation = %q, want hash of %q", got, secretValue)
+		if got := cr.GetAnnotations()[annotationPasswordHash]; !secrethash.Matches(secretValue, got) {
+			t.Fatalf("e.Update(...): password hash annotation = %q, does not match %q", got, secretValue)
 		}
 	})
 

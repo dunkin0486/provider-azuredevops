@@ -6,8 +6,6 @@ package serviceendpointgithub
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/controller"
@@ -28,6 +26,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointgithub/v1alpha1"
 	azuredevops "github.com/dunkin0486/provider-azuredevops/internal/clients/azuredevops"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const (
@@ -179,7 +178,7 @@ func (c *external) tokenUpToDate(ctx context.Context, cr *v1alpha1.ServiceEndpoi
 	if token == "" {
 		return cr.GetAnnotations()[annotationTokenHash] == "", nil
 	}
-	return hashToken(token) == cr.GetAnnotations()[annotationTokenHash], nil
+	return secrethash.Matches(token, cr.GetAnnotations()[annotationTokenHash]), nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointGitHub) (managed.ExternalCreation, error) {
@@ -202,7 +201,9 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointGitHu
 	if cr.Status.AtProvider.ID != "" {
 		meta.SetExternalName(cr, cr.Status.AtProvider.ID)
 	}
-	setTokenHashAnnotation(cr, token)
+	if err := setTokenHashAnnotation(cr, token); err != nil {
+		return managed.ExternalCreation{}, err
+	}
 
 	return managed.ExternalCreation{}, nil
 }
@@ -233,7 +234,9 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointGitHu
 	}
 
 	cr.Status.AtProvider = observationFromServiceEndpoint(updated)
-	setTokenHashAnnotation(cr, token)
+	if err := setTokenHashAnnotation(cr, token); err != nil {
+		return managed.ExternalUpdate{}, err
+	}
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -358,22 +361,20 @@ func (c *external) resolveTokenSecretValue(ctx context.Context, p v1alpha1.Servi
 	return string(secret), nil
 }
 
-// hashToken returns a SHA-256 hex digest of token, for storing in
-// annotationTokenHash without persisting the plaintext value itself.
-func hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
-
 // setTokenHashAnnotation records a hash of token on cr so a future Observe can
 // detect if the referenced Secret's value has since changed (see
 // annotationTokenHash). No-op if token is empty.
-func setTokenHashAnnotation(cr *v1alpha1.ServiceEndpointGitHub, token string) {
+func setTokenHashAnnotation(cr *v1alpha1.ServiceEndpointGitHub, token string) error {
 	if token == "" {
 		meta.RemoveAnnotations(cr, annotationTokenHash)
-		return
+		return nil
 	}
-	meta.AddAnnotations(cr, map[string]string{annotationTokenHash: hashToken(token)})
+	hash, err := secrethash.Hash(token)
+	if err != nil {
+		return err
+	}
+	meta.AddAnnotations(cr, map[string]string{annotationTokenHash: hash})
+	return nil
 }
 
 func validateParameters(p v1alpha1.ServiceEndpointGitHubParameters) error {

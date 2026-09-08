@@ -28,6 +28,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointgithub/v1alpha1"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointgithub/fake"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const defaultNamespace = "default"
@@ -281,8 +282,8 @@ func TestCreatePersonalAccessToken(t *testing.T) {
 	if gotName := meta.GetExternalName(cr); gotName != endpointID.String() {
 		t.Fatalf("e.Create(...): external name = %q, want %q", gotName, endpointID.String())
 	}
-	if got := cr.GetAnnotations()[annotationTokenHash]; got != hashToken(secretValue) {
-		t.Fatalf("e.Create(...): token hash annotation = %q, want hash of %q", got, secretValue)
+	if got := cr.GetAnnotations()[annotationTokenHash]; !secrethash.Matches(secretValue, got) {
+		t.Fatalf("e.Create(...): token hash annotation = %q, does not match %q", got, secretValue)
 	}
 }
 
