@@ -20,6 +20,7 @@ package apis
 import (
 	"k8s.io/apimachinery/pkg/runtime"
 
+	agentpoolv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/agentpool/v1alpha1"
 	branchpolicyminreviewersv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/branchpolicyminreviewers/v1alpha1"
 	builddefinitionv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/builddefinition/v1alpha1"
 	environmentv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/environment/v1alpha1"
@@ -38,6 +39,7 @@ func init() {
 	// Register the types with the Scheme so the components can map objects to GroupVersionKinds and back
 	AddToSchemes = append(AddToSchemes,
 		azuredevopsv1alpha1.SchemeBuilder.AddToScheme,
+		agentpoolv1alpha1.SchemeBuilder.AddToScheme,
 		branchpolicyminreviewersv1alpha1.SchemeBuilder.AddToScheme,
 		builddefinitionv1alpha1.SchemeBuilder.AddToScheme,
 		environmentv1alpha1.SchemeBuilder.AddToScheme,
