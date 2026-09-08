@@ -1,0 +1,13 @@
+apiVersion: environment.azuredevops.crossplane.io/v1alpha1
+kind: Environment
+metadata:
+  name: example-environment
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    name: example-deployment-environment
+    description: An example Azure DevOps Pipelines environment managed by Crossplane.
