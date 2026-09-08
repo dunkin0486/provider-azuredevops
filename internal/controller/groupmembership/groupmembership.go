@@ -29,13 +29,14 @@ import (
 )
 
 const (
-	errGetConfig          = "cannot get Azure DevOps client config"
-	errNewClient          = "cannot create new Azure DevOps graph client"
-	errGetMembership      = "cannot get group membership"
-	errGetMembershipState = "cannot get group membership state"
-	errCreateMembership   = "cannot create group membership"
-	errDeleteMembership   = "cannot delete group membership"
-	errImmutableIdentity  = "memberDescriptor and groupDescriptor are immutable"
+	errGetConfig              = "cannot get Azure DevOps client config"
+	errNewClient              = "cannot create new Azure DevOps graph client"
+	errGetMembership          = "cannot get group membership"
+	errGetMembershipState     = "cannot get group membership state"
+	errCreateMembership       = "cannot create group membership"
+	errDeleteMembership       = "cannot delete group membership"
+	errImmutableIdentity      = "memberDescriptor and groupDescriptor are immutable"
+	errMissingGroupDescriptor = "groupDescriptor is required (directly or via groupDescriptorRef/groupDescriptorSelector)"
 )
 
 // SetupGated adds a controller that reconciles GroupMembership managed resources with safe-start support.
@@ -144,6 +145,9 @@ func (e *external) Observe(ctx context.Context, cr *v1alpha1.GroupMembership) (m
 
 func (e *external) Create(ctx context.Context, cr *v1alpha1.GroupMembership) (managed.ExternalCreation, error) {
 	p := cr.Spec.ForProvider
+	if p.GroupDescriptor == "" {
+		return managed.ExternalCreation{}, errors.New(errMissingGroupDescriptor)
+	}
 
 	err := azuredevops.Retry(ctx, azuredevops.DefaultBackoff, func() error {
 		_, createErr := e.memberships.AddMembership(ctx, graph.AddMembershipArgs{
@@ -236,6 +240,10 @@ func membershipIdentityFor(cr *v1alpha1.GroupMembership) (memberDescriptor, grou
 			return "", "", errors.New(errImmutableIdentity)
 		}
 		return storedMember, storedGroup, nil
+	}
+
+	if p.GroupDescriptor == "" {
+		return "", "", errors.New(errMissingGroupDescriptor)
 	}
 
 	return p.MemberDescriptor, p.GroupDescriptor, nil

@@ -26,6 +26,7 @@ import (
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/config"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/environment"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/gitrepository"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/group"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/groupmembership"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/project"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointazurerm"
@@ -47,6 +48,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 		builddefinition.SetupGated,
 		environment.SetupGated,
 		gitrepository.SetupGated,
+		group.SetupGated,
 		groupmembership.SetupGated,
 		project.SetupGated,
 		serviceendpointazurerm.SetupGated,

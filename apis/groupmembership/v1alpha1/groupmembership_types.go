@@ -19,12 +19,17 @@ package v1alpha1
 import (
 	"reflect"
 
+	"github.com/crossplane/crossplane-runtime/v2/pkg/reference"
+	"github.com/crossplane/crossplane-runtime/v2/pkg/resource"
 	xpv2 "github.com/crossplane/crossplane/apis/v2/core/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	groupv1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/group/v1alpha1"
 )
 
 // GroupMembershipParameters are the configurable fields of a GroupMembership.
+// +kubebuilder:validation:XValidation:rule="(has(self.groupDescriptor) && self.groupDescriptor != \"\") || has(self.groupDescriptorRef) || has(self.groupDescriptorSelector)",message="one of groupDescriptor, groupDescriptorRef, or groupDescriptorSelector is required"
 type GroupMembershipParameters struct {
 	// MemberDescriptor identifies the user, group, or service principal to
 	// add as a member of the target Azure DevOps graph group. Immutable once
@@ -35,13 +40,23 @@ type GroupMembershipParameters struct {
 	MemberDescriptor string `json:"memberDescriptor"`
 
 	// GroupDescriptor identifies the target Azure DevOps graph group that
-	// should contain the member. This is currently a plain descriptor string;
-	// a future enhancement may add groupRef/groupSelector support once the
-	// Team resource is available on main. Immutable once created.
-	// +kubebuilder:validation:Required
+	// should contain the member. Supply it directly or via
+	// GroupDescriptorRef / GroupDescriptorSelector to reference a Group
+	// managed resource's observed descriptor. Immutable once created.
 	// +kubebuilder:validation:MinLength=1
+	// +optional
 	// +immutable
-	GroupDescriptor string `json:"groupDescriptor"`
+	// +crossplane:generate:reference:type=github.com/dunkin0486/provider-azuredevops/apis/group/v1alpha1.Group
+	// +crossplane:generate:reference:extractor=GroupDescriptor()
+	GroupDescriptor string `json:"groupDescriptor,omitempty"`
+
+	// GroupDescriptorRef references the Group whose descriptor should be used.
+	// +optional
+	GroupDescriptorRef *xpv2.NamespacedReference `json:"groupDescriptorRef,omitempty"`
+
+	// GroupDescriptorSelector selects a Group whose descriptor should be used.
+	// +optional
+	GroupDescriptorSelector *xpv2.NamespacedSelector `json:"groupDescriptorSelector,omitempty"`
 
 	// Mode controls how the membership is reconciled. Azure DevOps' Graph
 	// Memberships API currently supports idempotent add/remove semantics for a
@@ -111,4 +126,16 @@ var (
 
 func init() {
 	SchemeBuilder.Register(&GroupMembership{}, &GroupMembershipList{})
+}
+
+// GroupDescriptor extracts a referenced Group's observed Azure DevOps graph
+// descriptor.
+func GroupDescriptor() reference.ExtractValueFn {
+	return func(mg resource.Managed) string {
+		r, ok := mg.(*groupv1alpha1.Group)
+		if !ok {
+			return ""
+		}
+		return r.Status.AtProvider.Descriptor
+	}
 }
