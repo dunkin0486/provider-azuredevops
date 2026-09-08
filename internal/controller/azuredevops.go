@@ -23,6 +23,7 @@ import (
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/branchpolicyminreviewers"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/builddefinition"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/config"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/environment"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/gitrepository"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/groupmembership"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/project"
@@ -39,6 +40,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 		config.Setup,
 		branchpolicyminreviewers.SetupGated,
 		builddefinition.SetupGated,
+		environment.SetupGated,
 		gitrepository.SetupGated,
 		groupmembership.SetupGated,
 		project.SetupGated,
