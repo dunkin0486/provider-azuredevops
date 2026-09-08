@@ -28,6 +28,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointkubernetes/v1alpha1"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointkubernetes/fake"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const defaultNamespace = "default"
@@ -309,8 +310,8 @@ func TestCreateServiceAccount(t *testing.T) {
 	if gotName := meta.GetExternalName(cr); gotName != endpointID.String() {
 		t.Fatalf("e.Create(...): external name = %q, want %q", gotName, endpointID.String())
 	}
-	if got := cr.GetAnnotations()[annotationAuthSecretHash]; got != hashSecret(secretValue) {
-		t.Fatalf("e.Create(...): auth secret hash annotation = %q, want hash of %q", got, secretValue)
+	if got := cr.GetAnnotations()[annotationAuthSecretHash]; !secrethash.Matches(secretValue, got) {
+		t.Fatalf("e.Create(...): auth secret hash annotation = %q, does not match %q", got, secretValue)
 	}
 }
 
@@ -365,8 +366,8 @@ func TestCreateKubeconfig(t *testing.T) {
 	if gotData := (*got.Endpoint.Data)[dataKeyAuthorizationType]; gotData != authorizationTypeKubeconfig {
 		t.Fatalf("e.Create(...): authorizationType = %q, want %q", gotData, authorizationTypeKubeconfig)
 	}
-	if got := cr.GetAnnotations()[annotationAuthSecretHash]; got != hashSecret(secretValue) {
-		t.Fatalf("e.Create(...): auth secret hash annotation = %q, want hash of %q", got, secretValue)
+	if got := cr.GetAnnotations()[annotationAuthSecretHash]; !secrethash.Matches(secretValue, got) {
+		t.Fatalf("e.Create(...): auth secret hash annotation = %q, does not match %q", got, secretValue)
 	}
 }
 
