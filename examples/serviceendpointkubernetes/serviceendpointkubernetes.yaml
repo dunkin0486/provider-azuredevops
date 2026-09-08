@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceendpoint-kubernetes-kubeconfig
+  namespace: default
+stringData:
+  kubeconfig: |
+    apiVersion: v1
+    kind: Config
+    current-context: example
+    clusters:
+      - name: example
+        cluster:
+          server: https://example.k8s.local
+          certificate-authority-data: ZXhhbXBsZS1jYS1kYXRh
+    contexts:
+      - name: example
+        context:
+          cluster: example
+          user: example
+    users:
+      - name: example
+        user:
+          token: example-token
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: serviceendpoint-kubernetes-serviceaccount
+  namespace: default
+stringData:
+  token: example-service-account-token
+---
+apiVersion: project.azuredevops.crossplane.io/v1alpha1
+kind: Project
+metadata:
+  name: example-project
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-project
+    description: An example project managed by Crossplane.
+    visibility: private
+    versionControl: Git
+    workItemTemplate: Agile
+---
+apiVersion: serviceendpointkubernetes.azuredevops.crossplane.io/v1alpha1
+kind: ServiceEndpointKubernetes
+metadata:
+  name: example-serviceendpoint-kubernetes-kubeconfig
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-kubernetes-kubeconfig
+    projectIdRef:
+      name: example-project
+    clusterServer: https://example.k8s.local
+    authorizationType: Kubeconfig
+    kubeconfigSecretRef:
+      name: serviceendpoint-kubernetes-kubeconfig
+      namespace: default
+      key: kubeconfig
+---
+apiVersion: serviceendpointkubernetes.azuredevops.crossplane.io/v1alpha1
+kind: ServiceEndpointKubernetes
+metadata:
+  name: example-serviceendpoint-kubernetes-serviceaccount
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-kubernetes-serviceaccount
+    projectIdRef:
+      name: example-project
+    clusterServer: https://example.k8s.local
+    authorizationType: ServiceAccount
+    serviceAccountTokenSecretRef:
+      name: serviceendpoint-kubernetes-serviceaccount
+      namespace: default
+      key: token
+    clusterCACertificate: ZXhhbXBsZS1jYS1kYXRh
