@@ -1,0 +1,14 @@
+apiVersion: agentqueue.azuredevops.crossplane.io/v1alpha1
+kind: AgentQueue
+metadata:
+  name: example-agent-queue
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    agentPoolIdRef:
+      name: example-agent-pool
+    authorizePipelines: true
