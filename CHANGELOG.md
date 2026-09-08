@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.3.1...v0.4.0) (2026-09-08)
+
+
+### Features
+
+* add Environment resource ([#91](https://github.com/dunkin0486/provider-azuredevops/issues/91)) ([3bf1a9c](https://github.com/dunkin0486/provider-azuredevops/commit/3bf1a9cb0a9d31dfd1c94cb0ca314a849b1e56a9))
+* add ServiceEndpointGeneric resource ([#86](https://github.com/dunkin0486/provider-azuredevops/issues/86)) ([ff215e0](https://github.com/dunkin0486/provider-azuredevops/commit/ff215e02430ccfb26a4eadea32481c03cc301954))
+* add ServiceEndpointGitHub resource ([#90](https://github.com/dunkin0486/provider-azuredevops/issues/90)) ([cc22743](https://github.com/dunkin0486/provider-azuredevops/commit/cc2274347518d549b213f41a77b5756b1d0f1d49))
+
 ## [0.3.1](https://github.com/dunkin0486/provider-azuredevops/compare/v0.3.0...v0.3.1) (2026-09-07)
 
 
