@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dockerhub-registry-username
+  namespace: default
+type: Opaque
+stringData:
+  username: dockerhub-username
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dockerhub-registry-password
+  namespace: default
+type: Opaque
+stringData:
+  password: dockerhub-password
+---
+apiVersion: project.azuredevops.crossplane.io/v1alpha1
+kind: Project
+metadata:
+  name: example-project
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-project
+---
+apiVersion: serviceendpointdockerregistry.azuredevops.crossplane.io/v1alpha1
+kind: ServiceEndpointDockerRegistry
+metadata:
+  name: example-dockerhub
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    name: example-dockerhub-connection
+    projectIdRef:
+      name: example-project
+    registryUrl: https://index.docker.io/v1/
+    registryType: DockerHub
+    dockerEmail: dev@example.com
+    usernameSecretRef:
+      name: dockerhub-registry-username
+      namespace: default
+      key: username
+    passwordSecretRef:
+      name: dockerhub-registry-password
+      namespace: default
+      key: password
+
+# Azure Container Registry support is reserved for a future API revision. Azure
+# DevOps ACR endpoints require additional Azure subscription and registry
+# metadata beyond this resource's current schema.
