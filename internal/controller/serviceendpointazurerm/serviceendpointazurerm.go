@@ -6,8 +6,6 @@ package serviceendpointazurerm
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/controller"
@@ -28,6 +26,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointazurerm/v1alpha1"
 	azuredevops "github.com/dunkin0486/provider-azuredevops/internal/clients/azuredevops"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const (
@@ -68,13 +67,14 @@ const (
 	dataKeyServicePrincipalID                = "serviceprincipalid"
 )
 
-// annotationClientSecretHash stores a SHA-256 hash of the service
+// annotationClientSecretHash stores a secrethash.Hash digest of the service
 // principal's client secret value that was last pushed to Azure DevOps.
 // Azure DevOps never returns the stored secret back on read, so isUpToDate
 // can only compare non-secret fields -- this annotation lets Observe
 // detect that the *referenced* Secret's value has since been rotated and
 // force a resync (otherwise a rotated secret would silently never
-// propagate to Azure DevOps).
+// propagate to Azure DevOps). See the secrethash package for why a salted,
+// computationally expensive digest is used instead of a bare fast hash.
 const annotationClientSecretHash = "serviceendpointazurerm.azuredevops.crossplane.io/client-secret-hash"
 
 // SetupGated adds a controller that reconciles ServiceEndpointAzureRM managed resources with safe-start support.
@@ -205,7 +205,7 @@ func (c *external) clientSecretUpToDate(ctx context.Context, cr *v1alpha1.Servic
 		// WorkloadIdentityFederation credentials have no secret to track.
 		return true, nil
 	}
-	return hashClientSecret(secret) == cr.GetAnnotations()[annotationClientSecretHash], nil
+	return secrethash.Matches(secret, cr.GetAnnotations()[annotationClientSecretHash]), nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointAzureRM) (managed.ExternalCreation, error) {
@@ -228,7 +228,9 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointAzure
 	if cr.Status.AtProvider.ID != "" {
 		meta.SetExternalName(cr, cr.Status.AtProvider.ID)
 	}
-	setClientSecretHashAnnotation(cr, secret)
+	if err := setClientSecretHashAnnotation(cr, secret); err != nil {
+		return managed.ExternalCreation{}, err
+	}
 
 	return managed.ExternalCreation{}, nil
 }
@@ -259,7 +261,9 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointAzure
 	}
 
 	cr.Status.AtProvider = observationFromServiceEndpoint(updated)
-	setClientSecretHashAnnotation(cr, secret)
+	if err := setClientSecretHashAnnotation(cr, secret); err != nil {
+		return managed.ExternalUpdate{}, err
+	}
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -384,22 +388,20 @@ func (c *external) resolveClientSecretValue(ctx context.Context, p v1alpha1.Serv
 	return string(secret), nil
 }
 
-// hashClientSecret returns a SHA-256 hex digest of secret, for storing in
-// annotationClientSecretHash without persisting the plaintext value itself.
-func hashClientSecret(secret string) string {
-	sum := sha256.Sum256([]byte(secret))
-	return hex.EncodeToString(sum[:])
-}
-
 // setClientSecretHashAnnotation records a hash of secret on cr so a future
 // Observe can detect if the referenced Secret's value has since changed
 // (see annotationClientSecretHash). No-op if secret is empty (i.e.
 // WorkloadIdentityFederation credentials, which have nothing to track).
-func setClientSecretHashAnnotation(cr *v1alpha1.ServiceEndpointAzureRM, secret string) {
+func setClientSecretHashAnnotation(cr *v1alpha1.ServiceEndpointAzureRM, secret string) error {
 	if secret == "" {
-		return
+		return nil
 	}
-	meta.AddAnnotations(cr, map[string]string{annotationClientSecretHash: hashClientSecret(secret)})
+	hash, err := secrethash.Hash(secret)
+	if err != nil {
+		return err
+	}
+	meta.AddAnnotations(cr, map[string]string{annotationClientSecretHash: hash})
+	return nil
 }
 
 func validateParameters(p v1alpha1.ServiceEndpointAzureRMParameters) error {

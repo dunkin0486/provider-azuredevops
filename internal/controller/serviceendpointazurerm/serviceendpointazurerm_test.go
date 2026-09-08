@@ -27,6 +27,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointazurerm/v1alpha1"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointazurerm/fake"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const defaultNamespace = "default"
@@ -282,8 +283,8 @@ func TestCreateServicePrincipal(t *testing.T) {
 	if gotName := meta.GetExternalName(cr); gotName != endpointID.String() {
 		t.Fatalf("e.Create(...): external name = %q, want %q", gotName, endpointID.String())
 	}
-	if got := cr.GetAnnotations()[annotationClientSecretHash]; got != hashClientSecret(secretValue) {
-		t.Fatalf("e.Create(...): client secret hash annotation = %q, want hash of %q", got, secretValue)
+	if got := cr.GetAnnotations()[annotationClientSecretHash]; !secrethash.Matches(secretValue, got) {
+		t.Fatalf("e.Create(...): client secret hash annotation = %q, does not match %q", got, secretValue)
 	}
 }
 

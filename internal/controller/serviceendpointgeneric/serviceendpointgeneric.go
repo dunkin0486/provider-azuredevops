@@ -6,8 +6,6 @@ package serviceendpointgeneric
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/controller"
@@ -28,6 +26,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointgeneric/v1alpha1"
 	azuredevops "github.com/dunkin0486/provider-azuredevops/internal/clients/azuredevops"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const (
@@ -60,12 +59,14 @@ const (
 	authParamAPIToken = "apitoken"
 )
 
-// annotationPasswordHash stores a SHA-256 hash of the password or token value
-// that was last pushed to Azure DevOps. Azure DevOps never returns stored
-// secrets back on read, so isUpToDate can only compare non-secret fields --
-// this annotation lets Observe detect that the *referenced* Secret's value has
-// since been rotated and force a resync (otherwise a rotated secret would
-// silently never propagate to Azure DevOps).
+// annotationPasswordHash stores a secrethash.Hash digest of the password or
+// token value that was last pushed to Azure DevOps. Azure DevOps never
+// returns stored secrets back on read, so isUpToDate can only compare
+// non-secret fields -- this annotation lets Observe detect that the
+// *referenced* Secret's value has since been rotated and force a resync
+// (otherwise a rotated secret would silently never propagate to Azure
+// DevOps). See the secrethash package for why a salted, computationally
+// expensive digest is used instead of a bare fast hash.
 const annotationPasswordHash = "serviceendpointgeneric.azuredevops.crossplane.io/password-hash"
 
 // SetupGated adds a controller that reconciles ServiceEndpointGeneric managed resources with safe-start support.
@@ -194,7 +195,7 @@ func (c *external) passwordUpToDate(ctx context.Context, cr *v1alpha1.ServiceEnd
 	if secret == "" {
 		return true, nil
 	}
-	return hashPassword(secret) == cr.GetAnnotations()[annotationPasswordHash], nil
+	return secrethash.Matches(secret, cr.GetAnnotations()[annotationPasswordHash]), nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointGeneric) (managed.ExternalCreation, error) {
@@ -217,7 +218,9 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointGener
 	if cr.Status.AtProvider.ID != "" {
 		meta.SetExternalName(cr, cr.Status.AtProvider.ID)
 	}
-	setPasswordHashAnnotation(cr, secret)
+	if err := setPasswordHashAnnotation(cr, secret); err != nil {
+		return managed.ExternalCreation{}, err
+	}
 
 	return managed.ExternalCreation{}, nil
 }
@@ -248,7 +251,9 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointGener
 	}
 
 	cr.Status.AtProvider = observationFromServiceEndpoint(updated)
-	setPasswordHashAnnotation(cr, secret)
+	if err := setPasswordHashAnnotation(cr, secret); err != nil {
+		return managed.ExternalUpdate{}, err
+	}
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -376,22 +381,20 @@ func (c *external) resolvePasswordValue(ctx context.Context, p v1alpha1.ServiceE
 	return string(secret), nil
 }
 
-// hashPassword returns a SHA-256 hex digest of secret, for storing in
-// annotationPasswordHash without persisting the plaintext value itself.
-func hashPassword(secret string) string {
-	sum := sha256.Sum256([]byte(secret))
-	return hex.EncodeToString(sum[:])
-}
-
 // setPasswordHashAnnotation records a hash of secret on cr so a future Observe
 // can detect if the referenced Secret's value has since changed (see
 // annotationPasswordHash). No-op if secret is empty (i.e. None auth, which has
 // nothing to track).
-func setPasswordHashAnnotation(cr *v1alpha1.ServiceEndpointGeneric, secret string) {
+func setPasswordHashAnnotation(cr *v1alpha1.ServiceEndpointGeneric, secret string) error {
 	if secret == "" {
-		return
+		return nil
 	}
-	meta.AddAnnotations(cr, map[string]string{annotationPasswordHash: hashPassword(secret)})
+	hash, err := secrethash.Hash(secret)
+	if err != nil {
+		return err
+	}
+	meta.AddAnnotations(cr, map[string]string{annotationPasswordHash: hash})
+	return nil
 }
 
 func validateParameters(p v1alpha1.ServiceEndpointGenericParameters) error {
