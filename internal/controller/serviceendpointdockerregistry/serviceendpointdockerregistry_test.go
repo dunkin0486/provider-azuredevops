@@ -28,6 +28,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointdockerregistry/v1alpha1"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointdockerregistry/fake"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const defaultNamespace = "default"
@@ -181,7 +182,7 @@ func TestObserve(t *testing.T) {
 				return endpointWith(id, ready, registryTypeOthers, "https://index.docker.io/v1/"), nil
 			}}, kube: newKube(t, credentialsSecrets("docker-user", "super-secret-value")...)},
 			args: args{cr: serviceEndpointCR(id.String(), func(cr *v1alpha1.ServiceEndpointDockerRegistry) {
-				setConfigHashAnnotation(cr, hashConfig("super-secret-value"))
+				setConfigHashAnnotation(cr, "super-secret-value")
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.ReasonAvailable},
 		},
@@ -192,7 +193,7 @@ func TestObserve(t *testing.T) {
 			}}, kube: newKube(t, credentialsSecrets("docker-user", "super-secret-value")...)},
 			args: args{cr: serviceEndpointCR(id.String(), func(cr *v1alpha1.ServiceEndpointDockerRegistry) {
 				cr.Spec.ForProvider.RegistryType = registryTypeDockerHub
-				setConfigHashAnnotation(cr, hashConfig("super-secret-value"))
+				setConfigHashAnnotation(cr, "super-secret-value")
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: true}, condition: xpv2.ReasonAvailable},
 		},
@@ -210,7 +211,7 @@ func TestObserve(t *testing.T) {
 				return endpointWith(id, notReady, registryTypeOthers, "https://index.docker.io/v1/"), nil
 			}}, kube: newKube(t, credentialsSecrets("docker-user", "super-secret-value")...)},
 			args: args{cr: serviceEndpointCR(id.String(), func(cr *v1alpha1.ServiceEndpointDockerRegistry) {
-				setConfigHashAnnotation(cr, hashConfig("super-secret-value"))
+				setConfigHashAnnotation(cr, "super-secret-value")
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, condition: xpv2.ReasonCreating},
 		},
@@ -220,7 +221,7 @@ func TestObserve(t *testing.T) {
 				return endpointWith(id, ready, registryTypeOthers, "https://index.docker.io/v1/"), nil
 			}}, kube: newKube(t, credentialsSecrets("rotated-user", "rotated-password")...)},
 			args: args{cr: serviceEndpointCR(id.String(), func(cr *v1alpha1.ServiceEndpointDockerRegistry) {
-				setConfigHashAnnotation(cr, hashConfig("original-password"))
+				setConfigHashAnnotation(cr, "original-password")
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, condition: xpv2.ReasonAvailable},
 		},
@@ -232,7 +233,7 @@ func TestObserve(t *testing.T) {
 				return endpoint, nil
 			}}, kube: newKube(t, credentialsSecrets("docker-user", "super-secret-value")...)},
 			args: args{cr: serviceEndpointCR(id.String(), func(cr *v1alpha1.ServiceEndpointDockerRegistry) {
-				setConfigHashAnnotation(cr, hashConfig("super-secret-value"))
+				setConfigHashAnnotation(cr, "super-secret-value")
 			})},
 			want: want{o: managed.ExternalObservation{ResourceExists: true, ResourceUpToDate: false}, condition: xpv2.ReasonAvailable},
 		},
@@ -324,7 +325,7 @@ func TestCreateOthers(t *testing.T) {
 	if gotName := meta.GetExternalName(cr); gotName != endpointID.String() {
 		t.Fatalf("e.Create(...): external name = %q, want %q", gotName, endpointID.String())
 	}
-	if got := cr.GetAnnotations()[annotationConfigHash]; got != hashConfig("super-secret-value") {
+	if got := cr.GetAnnotations()[annotationConfigHash]; !secrethash.Matches("super-secret-value", got) {
 		t.Fatalf("e.Create(...): config hash annotation = %q, want hash of applied config", got)
 	}
 }

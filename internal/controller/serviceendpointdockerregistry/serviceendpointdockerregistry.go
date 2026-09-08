@@ -6,8 +6,6 @@ package serviceendpointdockerregistry
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 
 	"github.com/crossplane/crossplane-runtime/v2/pkg/controller"
@@ -28,6 +26,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointdockerregistry/v1alpha1"
 	azuredevops "github.com/dunkin0486/provider-azuredevops/internal/clients/azuredevops"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const (
@@ -181,11 +180,11 @@ func (c *external) configUpToDate(ctx context.Context, cr *v1alpha1.ServiceEndpo
 	if !usernameAndEmailUpToDate(endpoint, username, cr.Spec.ForProvider.DockerEmail) {
 		return false, nil
 	}
-	return hashConfig(password) == cr.GetAnnotations()[annotationConfigHash], nil
+	return secrethash.Matches(password, cr.GetAnnotations()[annotationConfigHash]), nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointDockerRegistry) (managed.ExternalCreation, error) {
-	endpoint, hash, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
+	endpoint, password, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
@@ -204,7 +203,9 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointDocke
 	if cr.Status.AtProvider.ID != "" {
 		meta.SetExternalName(cr, cr.Status.AtProvider.ID)
 	}
-	setConfigHashAnnotation(cr, hash)
+	if err := setConfigHashAnnotation(cr, password); err != nil {
+		return managed.ExternalCreation{}, errors.Wrap(err, errCreateServiceEndpoint)
+	}
 
 	return managed.ExternalCreation{}, nil
 }
@@ -215,7 +216,7 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointDocke
 		return managed.ExternalUpdate{}, err
 	}
 
-	endpoint, hash, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
+	endpoint, password, err := c.buildServiceEndpoint(ctx, cr.Spec.ForProvider)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
@@ -235,7 +236,9 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointDocke
 	}
 
 	cr.Status.AtProvider = observationFromServiceEndpoint(updated)
-	setConfigHashAnnotation(cr, hash)
+	if err := setConfigHashAnnotation(cr, password); err != nil {
+		return managed.ExternalUpdate{}, errors.Wrap(err, errUpdateServiceEndpoint)
+	}
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -280,6 +283,9 @@ func (c *external) getServiceEndpoint(ctx context.Context, projectID string, end
 	return endpoint, err
 }
 
+// buildServiceEndpoint returns the desired ServiceEndpoint along with the
+// plaintext registry password used to build it, so callers can compute a
+// fresh secrethash annotation without re-resolving the Secret.
 func (c *external) buildServiceEndpoint(ctx context.Context, p v1alpha1.ServiceEndpointDockerRegistryParameters) (*serviceendpoint.ServiceEndpoint, string, error) {
 	if err := validateParameters(p); err != nil {
 		return nil, "", err
@@ -295,7 +301,7 @@ func (c *external) buildServiceEndpoint(ctx context.Context, p v1alpha1.ServiceE
 		return nil, "", err
 	}
 
-	authorization, configHash, err := c.resolveAuthorization(ctx, p)
+	authorization, password, err := c.resolveAuthorization(ctx, p)
 	if err != nil {
 		return nil, "", err
 	}
@@ -325,7 +331,7 @@ func (c *external) buildServiceEndpoint(ctx context.Context, p v1alpha1.ServiceE
 		}},
 		Type: &typ,
 		Url:  &url,
-	}, configHash, nil
+	}, password, nil
 }
 
 func (c *external) resolveAuthorization(ctx context.Context, p v1alpha1.ServiceEndpointDockerRegistryParameters) (*serviceendpoint.EndpointAuthorization, string, error) {
@@ -344,7 +350,7 @@ func (c *external) resolveAuthorization(ctx context.Context, p v1alpha1.ServiceE
 	}
 
 	scheme := serviceEndpointAuthScheme
-	return &serviceendpoint.EndpointAuthorization{Parameters: &params, Scheme: &scheme}, hashConfig(password), nil
+	return &serviceendpoint.EndpointAuthorization{Parameters: &params, Scheme: &scheme}, password, nil
 }
 
 func (c *external) resolveCredentials(ctx context.Context, p v1alpha1.ServiceEndpointDockerRegistryParameters) (string, string, error) {
@@ -369,13 +375,13 @@ func (c *external) resolveSecretValue(ctx context.Context, ref *xpv2.SecretKeySe
 	return string(secret), nil
 }
 
-func hashConfig(password string) string {
-	sum := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(sum[:])
-}
-
-func setConfigHashAnnotation(cr *v1alpha1.ServiceEndpointDockerRegistry, hash string) {
+func setConfigHashAnnotation(cr *v1alpha1.ServiceEndpointDockerRegistry, password string) error {
+	hash, err := secrethash.Hash(password)
+	if err != nil {
+		return err
+	}
 	meta.AddAnnotations(cr, map[string]string{annotationConfigHash: hash})
+	return nil
 }
 
 func validateParameters(p v1alpha1.ServiceEndpointDockerRegistryParameters) error {

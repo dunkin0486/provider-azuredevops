@@ -6,8 +6,6 @@ package serviceendpointkubernetes
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"strconv"
 	"strings"
 
@@ -29,6 +27,7 @@ import (
 
 	v1alpha1 "github.com/dunkin0486/provider-azuredevops/apis/serviceendpointkubernetes/v1alpha1"
 	azuredevops "github.com/dunkin0486/provider-azuredevops/internal/clients/azuredevops"
+	"github.com/dunkin0486/provider-azuredevops/internal/secrethash"
 )
 
 const (
@@ -191,7 +190,7 @@ func (c *external) authSecretUpToDate(ctx context.Context, cr *v1alpha1.ServiceE
 	if secret == "" {
 		return cr.GetAnnotations()[annotationAuthSecretHash] == "", nil
 	}
-	return hashSecret(secret) == cr.GetAnnotations()[annotationAuthSecretHash], nil
+	return secrethash.Matches(secret, cr.GetAnnotations()[annotationAuthSecretHash]), nil
 }
 
 func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointKubernetes) (managed.ExternalCreation, error) {
@@ -214,7 +213,9 @@ func (c *external) Create(ctx context.Context, cr *v1alpha1.ServiceEndpointKuber
 	if cr.Status.AtProvider.ID != "" {
 		meta.SetExternalName(cr, cr.Status.AtProvider.ID)
 	}
-	setAuthSecretHashAnnotation(cr, secret)
+	if err := setAuthSecretHashAnnotation(cr, secret); err != nil {
+		return managed.ExternalCreation{}, errors.Wrap(err, errCreateServiceEndpoint)
+	}
 
 	return managed.ExternalCreation{}, nil
 }
@@ -245,7 +246,9 @@ func (c *external) Update(ctx context.Context, cr *v1alpha1.ServiceEndpointKuber
 	}
 
 	cr.Status.AtProvider = observationFromServiceEndpoint(updated)
-	setAuthSecretHashAnnotation(cr, secret)
+	if err := setAuthSecretHashAnnotation(cr, secret); err != nil {
+		return managed.ExternalUpdate{}, errors.Wrap(err, errUpdateServiceEndpoint)
+	}
 	return managed.ExternalUpdate{}, nil
 }
 
@@ -418,17 +421,17 @@ func (c *external) resolveServiceAccountTokenValue(ctx context.Context, p v1alph
 	return string(secret), nil
 }
 
-func hashSecret(secret string) string {
-	sum := sha256.Sum256([]byte(secret))
-	return hex.EncodeToString(sum[:])
-}
-
-func setAuthSecretHashAnnotation(cr *v1alpha1.ServiceEndpointKubernetes, secret string) {
+func setAuthSecretHashAnnotation(cr *v1alpha1.ServiceEndpointKubernetes, secret string) error {
 	if secret == "" {
 		meta.RemoveAnnotations(cr, annotationAuthSecretHash)
-		return
+		return nil
 	}
-	meta.AddAnnotations(cr, map[string]string{annotationAuthSecretHash: hashSecret(secret)})
+	hash, err := secrethash.Hash(secret)
+	if err != nil {
+		return err
+	}
+	meta.AddAnnotations(cr, map[string]string{annotationAuthSecretHash: hash})
+	return nil
 }
 
 func validateParameters(p v1alpha1.ServiceEndpointKubernetesParameters) error {
