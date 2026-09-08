@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.0
-  name: groupmemberships.groupmembership.azuredevops.crossplane.io
+  name: groups.group.azuredevops.crossplane.io
 spec:
-  group: groupmembership.azuredevops.crossplane.io
+  group: group.azuredevops.crossplane.io
   names:
     categories:
     - crossplane
     - managed
     - azuredevops
-    kind: GroupMembership
-    listKind: GroupMembershipList
-    plural: groupmemberships
-    singular: groupmembership
+    kind: Group
+    listKind: GroupList
+    plural: groups
+    singular: group
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -28,9 +28,9 @@ spec:
     - jsonPath: .metadata.annotations.crossplane\.io/external-name
       name: EXTERNAL-NAME
       type: string
-    - jsonPath: .status.atProvider.active
-      name: ACTIVE
-      type: boolean
+    - jsonPath: .status.atProvider.descriptor
+      name: DESCRIPTOR
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
@@ -38,8 +38,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          A GroupMembership manages membership of a graph subject within an Azure
-          DevOps graph group.
+          A Group is an Azure DevOps group (a native, Azure DevOps-hosted
+          identity used to grant permissions and manage membership).
         properties:
           apiVersion:
             description: |-
@@ -59,128 +59,29 @@ spec:
           metadata:
             type: object
           spec:
-            description: A GroupMembershipSpec defines the desired state of a GroupMembership.
+            description: A GroupSpec defines the desired state of a Group.
             properties:
               forProvider:
-                description: GroupMembershipParameters are the configurable fields
-                  of a GroupMembership.
+                description: GroupParameters are the configurable fields of a Group.
                 properties:
-                  groupDescriptor:
-                    description: |-
-                      GroupDescriptor identifies the target Azure DevOps graph group that
-                      should contain the member. Supply it directly or via
-                      GroupDescriptorRef / GroupDescriptorSelector to reference a Group
-                      managed resource's observed descriptor. Immutable once created.
-                    minLength: 1
+                  description:
+                    description: Description of the Azure DevOps group.
                     type: string
-                  groupDescriptorRef:
-                    description: GroupDescriptorRef references the Group whose descriptor
-                      should be used.
-                    properties:
-                      name:
-                        description: Name of the referenced object.
-                        type: string
-                      namespace:
-                        description: Namespace of the referenced object
-                        type: string
-                      policy:
-                        description: Policies for referencing.
-                        properties:
-                          resolution:
-                            default: Required
-                            description: |-
-                              Resolution specifies whether resolution of this reference is required.
-                              The default is 'Required', which means the reconcile will fail if the
-                              reference cannot be resolved. 'Optional' means this reference will be
-                              a no-op if it cannot be resolved.
-                            enum:
-                            - Required
-                            - Optional
-                            type: string
-                          resolve:
-                            description: |-
-                              Resolve specifies when this reference should be resolved. The default
-                              is 'IfNotPresent', which will attempt to resolve the reference only when
-                              the corresponding field is not present. Use 'Always' to resolve the
-                              reference on every reconcile.
-                            enum:
-                            - Always
-                            - IfNotPresent
-                            type: string
-                        type: object
-                    required:
-                    - name
-                    type: object
-                  groupDescriptorSelector:
-                    description: GroupDescriptorSelector selects a Group whose descriptor
-                      should be used.
-                    properties:
-                      matchControllerRef:
-                        description: |-
-                          MatchControllerRef ensures an object with the same controller reference
-                          as the selecting object is selected.
-                        type: boolean
-                      matchLabels:
-                        additionalProperties:
-                          type: string
-                        description: MatchLabels ensures an object with matching labels
-                          is selected.
-                        type: object
-                      namespace:
-                        description: Namespace for the selector
-                        type: string
-                      policy:
-                        description: Policies for selection.
-                        properties:
-                          resolution:
-                            default: Required
-                            description: |-
-                              Resolution specifies whether resolution of this reference is required.
-                              The default is 'Required', which means the reconcile will fail if the
-                              reference cannot be resolved. 'Optional' means this reference will be
-                              a no-op if it cannot be resolved.
-                            enum:
-                            - Required
-                            - Optional
-                            type: string
-                          resolve:
-                            description: |-
-                              Resolve specifies when this reference should be resolved. The default
-                              is 'IfNotPresent', which will attempt to resolve the reference only when
-                              the corresponding field is not present. Use 'Always' to resolve the
-                              reference on every reconcile.
-                            enum:
-                            - Always
-                            - IfNotPresent
-                            type: string
-                        type: object
-                    type: object
-                  memberDescriptor:
-                    description: |-
-                      MemberDescriptor identifies the user, group, or service principal to
-                      add as a member of the target Azure DevOps graph group. Immutable once
-                      created.
-                    minLength: 1
+                  displayName:
+                    description: DisplayName is the display name of the Azure DevOps
+                      group.
                     type: string
-                  mode:
-                    default: add
+                  scopeDescriptor:
                     description: |-
-                      Mode controls how the membership is reconciled. Azure DevOps' Graph
-                      Memberships API currently supports idempotent add/remove semantics for a
-                      single membership edge; therefore overwrite currently behaves the same
-                      as add and is reserved for a future enhancement. Immutable once created.
-                    enum:
-                    - add
-                    - overwrite
+                      ScopeDescriptor is the descriptor of the project (or other scope)
+                      that this group should be created within. If omitted, the group is
+                      created at the organization/collection scope. This field is only
+                      used at creation time; Azure DevOps does not return a corresponding
+                      value on GET, so it cannot be reconciled after creation.
                     type: string
                 required:
-                - memberDescriptor
+                - displayName
                 type: object
-                x-kubernetes-validations:
-                - message: one of groupDescriptor, groupDescriptorRef, or groupDescriptorSelector
-                    is required
-                  rule: (has(self.groupDescriptor) && self.groupDescriptor != "")
-                    || has(self.groupDescriptorRef) || has(self.groupDescriptorSelector)
               managementPolicies:
                 default:
                 - '*'
@@ -240,20 +141,29 @@ spec:
             - forProvider
             type: object
           status:
-            description: A GroupMembershipStatus represents the observed state of
-              a GroupMembership.
+            description: A GroupStatus represents the observed state of a Group.
             properties:
               atProvider:
-                description: GroupMembershipObservation are the observable fields
-                  of a GroupMembership.
+                description: GroupObservation are the observable fields of a Group.
                 properties:
-                  active:
+                  descriptor:
                     description: |-
-                      Active reports whether Azure DevOps currently considers the member
-                      subject active.
-                    type: boolean
-                required:
-                - active
+                      Descriptor is the unique SID-like identifier for the group used to
+                      reference it in other Azure DevOps Graph API calls (e.g. as the
+                      containing group of a GroupMembership).
+                    type: string
+                  origin:
+                    description: |-
+                      Origin is the type of source provider for the origin identifier
+                      (e.g. "vsts", "aad").
+                    type: string
+                  originId:
+                    description: OriginID is the unique identifier from the origin
+                      (AAD, GitHub, etc).
+                    type: string
+                  url:
+                    description: URL is the Azure DevOps REST URL of the group.
+                    type: string
                 type: object
               conditions:
                 description: Conditions of the resource.
