@@ -21,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/agentpool"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/agentqueue"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/branchpolicyminreviewers"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/builddefinition"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/config"
@@ -44,6 +45,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
 		config.Setup,
 		agentpool.SetupGated,
+		agentqueue.SetupGated,
 		branchpolicyminreviewers.SetupGated,
 		builddefinition.SetupGated,
 		environment.SetupGated,
