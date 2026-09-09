@@ -36,6 +36,7 @@ import (
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointgithub"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointkubernetes"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/team"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/userentitlement"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/variablegroup"
 )
 
@@ -59,6 +60,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 		serviceendpointgithub.SetupGated,
 		serviceendpointkubernetes.SetupGated,
 		team.SetupGated,
+		userentitlement.SetupGated,
 		variablegroup.SetupGated,
 	} {
 		if err := setup(mgr, o); err != nil {
