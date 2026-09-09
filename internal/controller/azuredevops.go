@@ -21,11 +21,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/agentpool"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/agentqueue"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/branchpolicyminreviewers"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/builddefinition"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/config"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/environment"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/gitrepository"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/group"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/groupmembership"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/project"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/serviceendpointazurerm"
@@ -44,10 +46,12 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 	for _, setup := range []func(ctrl.Manager, controller.Options) error{
 		config.Setup,
 		agentpool.SetupGated,
+		agentqueue.SetupGated,
 		branchpolicyminreviewers.SetupGated,
 		builddefinition.SetupGated,
 		environment.SetupGated,
 		gitrepository.SetupGated,
+		group.SetupGated,
 		groupmembership.SetupGated,
 		project.SetupGated,
 		serviceendpointazurerm.SetupGated,

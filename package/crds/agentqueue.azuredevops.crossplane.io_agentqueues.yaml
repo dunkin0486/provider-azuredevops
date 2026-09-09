@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.0
-  name: groupmemberships.groupmembership.azuredevops.crossplane.io
+  name: agentqueues.agentqueue.azuredevops.crossplane.io
 spec:
-  group: groupmembership.azuredevops.crossplane.io
+  group: agentqueue.azuredevops.crossplane.io
   names:
     categories:
     - crossplane
     - managed
     - azuredevops
-    kind: GroupMembership
-    listKind: GroupMembershipList
-    plural: groupmemberships
-    singular: groupmembership
+    kind: AgentQueue
+    listKind: AgentQueueList
+    plural: agentqueues
+    singular: agentqueue
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -28,9 +28,9 @@ spec:
     - jsonPath: .metadata.annotations.crossplane\.io/external-name
       name: EXTERNAL-NAME
       type: string
-    - jsonPath: .status.atProvider.active
-      name: ACTIVE
-      type: boolean
+    - jsonPath: .status.atProvider.id
+      name: QUEUE-ID
+      type: string
     - jsonPath: .metadata.creationTimestamp
       name: AGE
       type: date
@@ -38,8 +38,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          A GroupMembership manages membership of a graph subject within an Azure
-          DevOps graph group.
+          An AgentQueue links an Azure DevOps Project to an organization-level
+          AgentPool so that pipelines in that project can use the pool's agents.
         properties:
           apiVersion:
             description: |-
@@ -59,22 +59,20 @@ spec:
           metadata:
             type: object
           spec:
-            description: A GroupMembershipSpec defines the desired state of a GroupMembership.
+            description: An AgentQueueSpec defines the desired state of an AgentQueue.
             properties:
               forProvider:
-                description: GroupMembershipParameters are the configurable fields
-                  of a GroupMembership.
+                description: AgentQueueParameters are the configurable fields of an
+                  AgentQueue.
                 properties:
-                  groupDescriptor:
+                  agentPoolId:
                     description: |-
-                      GroupDescriptor identifies the target Azure DevOps graph group that
-                      should contain the member. Supply it directly or via
-                      GroupDescriptorRef / GroupDescriptorSelector to reference a Group
-                      managed resource's observed descriptor. Immutable once created.
-                    minLength: 1
+                      AgentPoolID is the organization-level AgentPool ID to link this
+                      project queue to. Supply it directly or via AgentPoolIDRef /
+                      AgentPoolIDSelector.
                     type: string
-                  groupDescriptorRef:
-                    description: GroupDescriptorRef references the Group whose descriptor
+                  agentPoolIdRef:
+                    description: AgentPoolIDRef references the AgentPool whose ID
                       should be used.
                     properties:
                       name:
@@ -111,8 +109,8 @@ spec:
                     required:
                     - name
                     type: object
-                  groupDescriptorSelector:
-                    description: GroupDescriptorSelector selects a Group whose descriptor
+                  agentPoolIdSelector:
+                    description: AgentPoolIDSelector selects an AgentPool whose ID
                       should be used.
                     properties:
                       matchControllerRef:
@@ -155,32 +153,107 @@ spec:
                             type: string
                         type: object
                     type: object
-                  memberDescriptor:
+                  authorizePipelines:
                     description: |-
-                      MemberDescriptor identifies the user, group, or service principal to
-                      add as a member of the target Azure DevOps graph group. Immutable once
-                      created.
-                    minLength: 1
-                    type: string
-                  mode:
-                    default: add
+                      AuthorizePipelines automatically authorizes this queue for use by all
+                      YAML pipelines in the project when set.
+                    type: boolean
+                  name:
                     description: |-
-                      Mode controls how the membership is reconciled. Azure DevOps' Graph
-                      Memberships API currently supports idempotent add/remove semantics for a
-                      single membership edge; therefore overwrite currently behaves the same
-                      as add and is reserved for a future enhancement. Immutable once created.
-                    enum:
-                    - add
-                    - overwrite
+                      Name of the agent queue. Defaults to the referenced AgentPool's name
+                      when omitted, which is the Azure DevOps convention for queues that
+                      link a project 1:1 to a pool.
                     type: string
-                required:
-                - memberDescriptor
+                  projectId:
+                    description: |-
+                      ProjectID is the Azure DevOps project GUID that this queue belongs to.
+                      Supply it directly or via ProjectIDRef / ProjectIDSelector.
+                    maxLength: 36
+                    minLength: 36
+                    type: string
+                  projectIdRef:
+                    description: ProjectIDRef references the Azure DevOps Project
+                      whose ID should be used.
+                    properties:
+                      name:
+                        description: Name of the referenced object.
+                        type: string
+                      namespace:
+                        description: Namespace of the referenced object
+                        type: string
+                      policy:
+                        description: Policies for referencing.
+                        properties:
+                          resolution:
+                            default: Required
+                            description: |-
+                              Resolution specifies whether resolution of this reference is required.
+                              The default is 'Required', which means the reconcile will fail if the
+                              reference cannot be resolved. 'Optional' means this reference will be
+                              a no-op if it cannot be resolved.
+                            enum:
+                            - Required
+                            - Optional
+                            type: string
+                          resolve:
+                            description: |-
+                              Resolve specifies when this reference should be resolved. The default
+                              is 'IfNotPresent', which will attempt to resolve the reference only when
+                              the corresponding field is not present. Use 'Always' to resolve the
+                              reference on every reconcile.
+                            enum:
+                            - Always
+                            - IfNotPresent
+                            type: string
+                        type: object
+                    required:
+                    - name
+                    type: object
+                  projectIdSelector:
+                    description: ProjectIDSelector selects an Azure DevOps Project
+                      whose ID should be used.
+                    properties:
+                      matchControllerRef:
+                        description: |-
+                          MatchControllerRef ensures an object with the same controller reference
+                          as the selecting object is selected.
+                        type: boolean
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: MatchLabels ensures an object with matching labels
+                          is selected.
+                        type: object
+                      namespace:
+                        description: Namespace for the selector
+                        type: string
+                      policy:
+                        description: Policies for selection.
+                        properties:
+                          resolution:
+                            default: Required
+                            description: |-
+                              Resolution specifies whether resolution of this reference is required.
+                              The default is 'Required', which means the reconcile will fail if the
+                              reference cannot be resolved. 'Optional' means this reference will be
+                              a no-op if it cannot be resolved.
+                            enum:
+                            - Required
+                            - Optional
+                            type: string
+                          resolve:
+                            description: |-
+                              Resolve specifies when this reference should be resolved. The default
+                              is 'IfNotPresent', which will attempt to resolve the reference only when
+                              the corresponding field is not present. Use 'Always' to resolve the
+                              reference on every reconcile.
+                            enum:
+                            - Always
+                            - IfNotPresent
+                            type: string
+                        type: object
+                    type: object
                 type: object
-                x-kubernetes-validations:
-                - message: one of groupDescriptor, groupDescriptorRef, or groupDescriptorSelector
-                    is required
-                  rule: (has(self.groupDescriptor) && self.groupDescriptor != "")
-                    || has(self.groupDescriptorRef) || has(self.groupDescriptorSelector)
               managementPolicies:
                 default:
                 - '*'
@@ -240,20 +313,23 @@ spec:
             - forProvider
             type: object
           status:
-            description: A GroupMembershipStatus represents the observed state of
-              a GroupMembership.
+            description: An AgentQueueStatus represents the observed state of an AgentQueue.
             properties:
               atProvider:
-                description: GroupMembershipObservation are the observable fields
-                  of a GroupMembership.
+                description: AgentQueueObservation are the observable fields of an
+                  AgentQueue.
                 properties:
-                  active:
-                    description: |-
-                      Active reports whether Azure DevOps currently considers the member
-                      subject active.
-                    type: boolean
-                required:
-                - active
+                  id:
+                    description: ID is the integer agent queue ID assigned by Azure
+                      DevOps.
+                    type: string
+                  name:
+                    description: Name is the queue name as reported by Azure DevOps.
+                    type: string
+                  poolId:
+                    description: PoolID is the integer agent pool ID this queue is
+                      linked to.
+                    type: string
                 type: object
               conditions:
                 description: Conditions of the resource.

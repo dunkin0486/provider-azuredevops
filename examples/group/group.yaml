@@ -1,0 +1,11 @@
+apiVersion: group.azuredevops.crossplane.io/v1alpha1
+kind: Group
+metadata:
+  name: example-group
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    displayName: Example Group
+    description: An example Azure DevOps group managed by Crossplane

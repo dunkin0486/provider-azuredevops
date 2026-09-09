@@ -142,6 +142,18 @@ func TestObserve(t *testing.T) {
 			})},
 			want: want{err: xperrors.Wrap(errors.New(errImmutableIdentity), errGetMembership)},
 		},
+		"MissingGroupDescriptorRejected": {
+			fields: fields{client: &fakegraph.GroupMembershipClient{
+				GetMembershipFn: func(_ context.Context, _ graph.GetMembershipArgs) (*graph.GraphMembership, error) {
+					t.Fatal("GetMembership should not be called when groupDescriptor is unresolved")
+					return nil, nil
+				},
+			}},
+			args: args{cr: groupMembershipCR(func(cr *v1alpha1.GroupMembership) {
+				cr.Spec.ForProvider.GroupDescriptor = ""
+			})},
+			want: want{err: xperrors.Wrap(errors.New(errMissingGroupDescriptor), errGetMembership)},
+		},
 	}
 
 	for name, tc := range cases {
@@ -198,6 +210,24 @@ func TestCreate(t *testing.T) {
 	}
 	if !cr.Status.AtProvider.Active {
 		t.Fatal("Create(...): active = false, want true")
+	}
+}
+
+func TestCreateMissingGroupDescriptor(t *testing.T) {
+	cr := groupMembershipCR(func(cr *v1alpha1.GroupMembership) {
+		cr.Spec.ForProvider.GroupDescriptor = ""
+	})
+
+	e := external{memberships: &fakegraph.GroupMembershipClient{
+		AddMembershipFn: func(_ context.Context, _ graph.AddMembershipArgs) (*graph.GraphMembership, error) {
+			t.Fatal("AddMembership should not be called when groupDescriptor is unresolved")
+			return nil, nil
+		},
+	}}
+
+	_, err := e.Create(context.Background(), cr)
+	if diff := cmp.Diff(errors.New(errMissingGroupDescriptor), err, test.EquateErrors()); diff != "" {
+		t.Fatalf("Create(...): -want error, +got error:\n%s", diff)
 	}
 }
 

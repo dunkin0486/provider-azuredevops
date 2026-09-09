@@ -10,5 +10,6 @@ spec:
     # Graph descriptors come from Azure DevOps graph subject/group lookups
     # (for example the Graph Users, Groups, or Teams APIs).
     memberDescriptor: aadgp.Uy0xLTktMTU1MTM3NDI0My0xMjM0NTY3ODkwLTEyMzQ1Njc4OS0xMjM0NTY3ODkwLTEyMzQ1Njc4OTAtMS0xMjM0NTY3ODktMQ
-    groupDescriptor: vssgp.Uy0xLTktMTU1MTM3NDI0My0xMjM0NTY3ODkwLTEyMzQ1Njc4OS0xMjM0NTY3ODkwLTEyMzQ1Njc4OTAtMS0yMzQ1Njc4OTAtMQ
+    groupDescriptorRef:
+      name: example-group
     mode: add
