@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.5.0...v0.6.0) (2026-09-09)
+
+
+### Features
+
+* add AgentQueue managed resource ([cce27a0](https://github.com/dunkin0486/provider-azuredevops/commit/cce27a0e2b37b9517aa513acbcf8d398b2a9648d)), closes [#16](https://github.com/dunkin0486/provider-azuredevops/issues/16)
+* add Group managed resource ([138b61b](https://github.com/dunkin0486/provider-azuredevops/commit/138b61be07e0944f03af9590ed2ce34c2c682723)), closes [#17](https://github.com/dunkin0486/provider-azuredevops/issues/17)
+* add UserEntitlement managed resource ([83da504](https://github.com/dunkin0486/provider-azuredevops/commit/83da504e7cec9f44e6e995f191f56531b462370b)), closes [#18](https://github.com/dunkin0486/provider-azuredevops/issues/18)
+
 ## [0.5.0](https://github.com/dunkin0486/provider-azuredevops/compare/v0.4.0...v0.5.0) (2026-09-08)
 
 
