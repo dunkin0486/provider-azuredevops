@@ -1,0 +1,272 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: userentitlements.userentitlement.azuredevops.crossplane.io
+spec:
+  group: userentitlement.azuredevops.crossplane.io
+  names:
+    categories:
+    - crossplane
+    - managed
+    - azuredevops
+    kind: UserEntitlement
+    listKind: UserEntitlementList
+    plural: userentitlements
+    singular: userentitlement
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: READY
+      type: string
+    - jsonPath: .status.conditions[?(@.type=='Synced')].status
+      name: SYNCED
+      type: string
+    - jsonPath: .metadata.annotations.crossplane\.io/external-name
+      name: EXTERNAL-NAME
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: AGE
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          A UserEntitlement grants an Azure DevOps user an account license and,
+          optionally, project-scoped group assignments.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: A UserEntitlementSpec defines the desired state of a UserEntitlement.
+            properties:
+              forProvider:
+                description: UserEntitlementParameters are the configurable fields
+                  of a UserEntitlement.
+                properties:
+                  accessLevel:
+                    description: AccessLevel is the account license type to assign
+                      to the user.
+                    enum:
+                    - none
+                    - earlyAdopter
+                    - express
+                    - professional
+                    - advanced
+                    - stakeholder
+                    type: string
+                  principalName:
+                    description: |-
+                      PrincipalName is the unique name (typically email or UPN) of the user
+                      to grant an entitlement to. Immutable once created.
+                    minLength: 1
+                    type: string
+                  projectEntitlements:
+                    description: |-
+                      ProjectEntitlements assigns the user to one or more projects with a
+                      specific permission group.
+                    items:
+                      description: |-
+                        ProjectEntitlementParameters describes a project-scoped group assignment
+                        for a user.
+                      properties:
+                        groupType:
+                          description: |-
+                            GroupType is the well-known project permission group the user should
+                            be assigned to within the project (e.g. Contributor, Reader).
+                          enum:
+                          - projectStakeholder
+                          - projectReader
+                          - projectContributor
+                          - projectAdministrator
+                          - custom
+                          type: string
+                        projectId:
+                          description: |-
+                            ProjectID is the Azure DevOps project GUID the user should be
+                            assigned to.
+                          maxLength: 36
+                          minLength: 36
+                          pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+                          type: string
+                      required:
+                      - groupType
+                      - projectId
+                      type: object
+                    type: array
+                required:
+                - accessLevel
+                - principalName
+                type: object
+              managementPolicies:
+                default:
+                - '*'
+                description: |-
+                  THIS IS A BETA FIELD. It is on by default but can be opted out
+                  through a Crossplane feature flag.
+                  ManagementPolicies specify the array of actions Crossplane is allowed to
+                  take on the managed and external resources.
+                  See the design doc for more information: https://github.com/crossplane/crossplane/blob/499895a25d1a1a0ba1604944ef98ac7a1a71f197/design/design-doc-observe-only-resources.md?plain=1#L223
+                  and this one: https://github.com/crossplane/crossplane/blob/444267e84783136daa93568b364a5f01228cacbe/design/one-pager-ignore-changes.md
+                items:
+                  description: |-
+                    A ManagementAction represents an action that the Crossplane controllers
+                    can take on an external resource.
+                  enum:
+                  - Observe
+                  - Create
+                  - Update
+                  - Delete
+                  - LateInitialize
+                  - '*'
+                  type: string
+                type: array
+              providerConfigRef:
+                default:
+                  kind: ClusterProviderConfig
+                  name: default
+                description: |-
+                  ProviderConfigReference specifies how the provider that will be used to
+                  create, observe, update, and delete this managed resource should be
+                  configured.
+                properties:
+                  kind:
+                    description: Kind of the referenced object.
+                    type: string
+                  name:
+                    description: Name of the referenced object.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              writeConnectionSecretToRef:
+                description: |-
+                  WriteConnectionSecretToReference specifies the namespace and name of a
+                  Secret to which any connection details for this managed resource should
+                  be written. Connection details frequently include the endpoint, username,
+                  and password required to connect to the managed resource.
+                properties:
+                  name:
+                    description: Name of the secret.
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - forProvider
+            type: object
+          status:
+            description: A UserEntitlementStatus represents the observed state of
+              a UserEntitlement.
+            properties:
+              atProvider:
+                description: UserEntitlementObservation are the observable fields
+                  of a UserEntitlement.
+                properties:
+                  id:
+                    description: |-
+                      ID is the Azure DevOps user entitlement GUID (matches the user's
+                      Identity ID).
+                    type: string
+                  lastAccessedDate:
+                    description: |-
+                      LastAccessedDate is the date the member last accessed the
+                      collection, in RFC3339 format.
+                    type: string
+                  origin:
+                    description: |-
+                      Origin is the type of source provider for the origin identifier
+                      (e.g. "aad", "vsts").
+                    type: string
+                  originId:
+                    description: OriginID is the unique identifier from the origin
+                      (AAD, GitHub, etc).
+                    type: string
+                type: object
+              conditions:
+                description: Conditions of the resource.
+                items:
+                  description: A Condition that may apply to a resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        LastTransitionTime is the last time this condition transitioned from one
+                        status to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        A Message containing details about this condition's last transition from
+                        one status to another, if any.
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        ObservedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      type: integer
+                    reason:
+                      description: A Reason for this condition's last transition from
+                        one status to another.
+                      type: string
+                    status:
+                      description: Status of this condition; is it currently True,
+                        False, or Unknown?
+                      type: string
+                    type:
+                      description: |-
+                        Type of this condition. At most one of each condition type may apply to
+                        a resource at any point in time.
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastHandledReconcileAt:
+                description: |-
+                  LastHandledReconcileAt holds the value of the most recent
+                  reconcile-requested-at annotation token that the controller has
+                  processed. Users can compare this to the annotation to determine
+                  whether a reconcile request has been handled.
+                type: string
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the latest metadata.generation
+                  which resulted in either a ready state, or stalled due to error
+                  it can not recover from without human intervention.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

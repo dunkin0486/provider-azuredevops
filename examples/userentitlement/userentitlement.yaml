@@ -1,0 +1,14 @@
+apiVersion: userentitlement.azuredevops.crossplane.io/v1alpha1
+kind: UserEntitlement
+metadata:
+  name: example-user-entitlement
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    principalName: user@example.com
+    accessLevel: express
+    projectEntitlements:
+      - projectId: 11111111-1111-1111-1111-111111111111
+        groupType: projectContributor
