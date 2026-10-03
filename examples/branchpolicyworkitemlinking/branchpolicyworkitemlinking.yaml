@@ -1,0 +1,16 @@
+apiVersion: branchpolicyworkitemlinking.azuredevops.crossplane.io/v1alpha1
+kind: BranchPolicyWorkItemLinking
+metadata:
+  name: example-work-item-linking
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    repositoryIdRef:
+      name: example-repository
+    branch: refs/heads/main
+    enabled: true
+    blocking: true

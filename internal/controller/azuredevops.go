@@ -23,6 +23,7 @@ import (
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/agentpool"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/agentqueue"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/branchpolicyminreviewers"
+	"github.com/dunkin0486/provider-azuredevops/internal/controller/branchpolicyworkitemlinking"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/builddefinition"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/config"
 	"github.com/dunkin0486/provider-azuredevops/internal/controller/environment"
@@ -48,6 +49,7 @@ func SetupGated(mgr ctrl.Manager, o controller.Options) error {
 		agentpool.SetupGated,
 		agentqueue.SetupGated,
 		branchpolicyminreviewers.SetupGated,
+		branchpolicyworkitemlinking.SetupGated,
 		builddefinition.SetupGated,
 		environment.SetupGated,
 		gitrepository.SetupGated,
