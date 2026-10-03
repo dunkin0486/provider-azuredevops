@@ -1,0 +1,21 @@
+apiVersion: branchpolicybuildvalidation.azuredevops.crossplane.io/v1alpha1
+kind: BranchPolicyBuildValidation
+metadata:
+  name: example-build-validation
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    repositoryIdRef:
+      name: example-repository
+    branch: refs/heads/main
+    buildDefinitionIdRef:
+      name: example-build-definition
+    displayName: Main branch validation
+    manualQueueOnly: false
+    validDuration: 30
+    enabled: true
+    blocking: true
