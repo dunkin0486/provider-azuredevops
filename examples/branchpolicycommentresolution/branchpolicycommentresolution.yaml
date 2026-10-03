@@ -1,0 +1,16 @@
+apiVersion: branchpolicycommentresolution.azuredevops.crossplane.io/v1alpha1
+kind: BranchPolicyCommentResolution
+metadata:
+  name: example-comment-resolution
+  namespace: default
+spec:
+  providerConfigRef:
+    name: example
+  forProvider:
+    projectIdRef:
+      name: example-project
+    repositoryIdRef:
+      name: example-repository
+    branch: refs/heads/main
+    enabled: true
+    blocking: true
