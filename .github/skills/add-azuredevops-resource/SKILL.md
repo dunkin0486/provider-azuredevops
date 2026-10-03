@@ -55,11 +55,20 @@ Before writing the agent prompts, identify the most similar already-implemented 
 
 ### 2.3 Dispatch one background `general-purpose` agent per resource
 
-**Before dispatching, confirm which model to run the agents with.** This work (implementing a full CRD/controller/client/fake/test suite against an undocumented-in-code external API, self-checking against issue acceptance criteria) benefits from a high-capability model. Default to the best available **Opus** model (e.g. `claude-opus-5` / `claude-opus-5.5`, whichever is current) and use the `ask_user` tool to let the human confirm or override before launching:
+**Before dispatching, confirm which model to run the agents with.** This work (implementing a full CRD/controller/client/fake/test suite against an undocumented-in-code external API, self-checking against issue acceptance criteria) benefits from a high-capability model. Default to the best available **Opus** model and use the `ask_user` tool to let the human confirm or override before launching. Re-check the model list available in your current environment at the time (names/versions drift), but as of this writing the top 5 candidates for this kind of multi-file, spec-following code-generation task are, in order of preference:
+
+1. **`claude-opus-5.5`** (or latest Opus point release) — default. Highest-capability reasoning model available; best at following detailed multi-constraint specs (CRD shape, client/fake pattern, acceptance-criteria self-check) without drifting.
+2. **`claude-opus-5`** — previous Opus generation, still excellent for this workload if 5.5 isn't available.
+3. **`gpt-6.1-sol`** (or latest "Sol"-tier GPT) — strong alternative with comparable long-horizon code-generation quality; good second opinion if Opus output needs cross-checking.
+4. **`claude-sonnet-5.5`** — faster/cheaper than Opus, noticeably good quality drop-off for highly structured repetitive work like this; reasonable if cost/speed matters more than maximum quality.
+5. **`grok-4.7`** — capable alternative with strong tool-use/code-gen performance; worth offering as a non-Anthropic/non-OpenAI option for variety.
 
 ```
 ask_user: "Which model should the resource-implementation agents use?"
-  field "model": type=string, enum of available high-capability models, default="claude-opus-5" (or latest Opus variant available)
+  field "model": type=string
+    enum/oneOf: claude-opus-5.5, claude-opus-5, gpt-6.1-sol, claude-sonnet-5.5, grok-4.7
+    default: claude-opus-5.5 (or latest Opus variant available)
+    description: briefly restate the rationale above so the human has context without leaving the prompt
 ```
 
 Pass the confirmed choice as the `model` parameter on every `task` tool call in this step (same model for all N agents unless the human asks for different ones per resource). Don't skip this prompt even if Opus seems like the obvious default — the human may want to trade cost/speed for quality on a given batch.
