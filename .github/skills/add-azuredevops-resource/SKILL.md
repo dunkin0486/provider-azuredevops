@@ -55,6 +55,15 @@ Before writing the agent prompts, identify the most similar already-implemented 
 
 ### 2.3 Dispatch one background `general-purpose` agent per resource
 
+**Before dispatching, confirm which model to run the agents with.** This work (implementing a full CRD/controller/client/fake/test suite against an undocumented-in-code external API, self-checking against issue acceptance criteria) benefits from a high-capability model. Default to the best available **Opus** model (e.g. `claude-opus-5` / `claude-opus-5.5`, whichever is current) and use the `ask_user` tool to let the human confirm or override before launching:
+
+```
+ask_user: "Which model should the resource-implementation agents use?"
+  field "model": type=string, enum of available high-capability models, default="claude-opus-5" (or latest Opus variant available)
+```
+
+Pass the confirmed choice as the `model` parameter on every `task` tool call in this step (same model for all N agents unless the human asks for different ones per resource). Don't skip this prompt even if Opus seems like the obvious default — the human may want to trade cost/speed for quality on a given batch.
+
 Launch all N agents in the same response (parallel background `task` tool calls, `mode: "background"`). Each prompt must be **fully self-contained** (agents are stateless subprocesses) and should specify, at minimum:
 
 - The exact worktree path to work in and the branch it's already on (created in 2.1), and an explicit instruction to **never** edit the main repo checkout — only read it for reference.
